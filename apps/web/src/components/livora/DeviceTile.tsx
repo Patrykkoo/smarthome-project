@@ -1,4 +1,4 @@
-import { LucideIcon } from "lucide-react";
+import { LucideIcon, Trash2, Pencil } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { GlassCard } from "./GlassCard";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,8 @@ interface DeviceTileProps {
   unit?: string;
   enabled: boolean;
   onToggle?: (v: boolean) => void;
+  onDelete?: () => void;
+  onRename?: () => void; // <--- Nowy prop
   accent?: boolean;
   className?: string;
 }
@@ -23,6 +25,8 @@ export function DeviceTile({
   unit,
   enabled,
   onToggle,
+  onDelete,
+  onRename,
   accent,
   className,
 }: DeviceTileProps) {
@@ -30,7 +34,7 @@ export function DeviceTile({
     <GlassCard
       hover
       className={cn(
-        "p-5 flex flex-col gap-4 min-h-[180px]",
+        "p-5 flex flex-col gap-4 min-h-[180px] relative",
         accent && enabled && "ring-1 ring-accent/40",
         className,
       )}
@@ -47,14 +51,44 @@ export function DeviceTile({
         <Switch checked={enabled} onCheckedChange={onToggle} />
       </div>
 
-      <div className="mt-auto">
+      <div className="mt-auto relative">
         <p className="text-xs uppercase tracking-wider text-muted-foreground">{room}</p>
-        <h3 className="mt-1 text-base font-semibold text-foreground">{name}</h3>
+        
+        {/* Kontener nazwy + przycisk edycji */}
+        <div className="flex items-center gap-2 mt-1">
+          <h3 className="text-base font-semibold text-foreground truncate max-w-[85%]">{name}</h3>
+          {onRename && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onRename();
+              }}
+              className="text-muted-foreground opacity-40 hover:opacity-100 hover:text-foreground transition-all"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
         {value && (
           <p className="mt-2 font-display text-2xl font-semibold text-foreground">
             {value}
             {unit && <span className="ml-1 text-sm font-medium text-muted-foreground">{unit}</span>}
           </p>
+        )}
+
+        {onDelete && (
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="absolute right-0 bottom-0 p-2 text-muted-foreground hover:text-destructive transition-colors"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
         )}
       </div>
     </GlassCard>

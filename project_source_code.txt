@@ -1320,45 +1320,121 @@ const NotFound = () => {
 export default NotFound;
 
 --- FILE: apps/web/src/pages/Devices.tsx ---
-import { useState } from "react";
-import { Lightbulb, Snowflake, Speaker, Camera, Wind, Tv, Power, Clock } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Lightbulb, LayoutGrid } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
 import { DeviceTile } from "@/components/livora/DeviceTile";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { useDevices } from "@/hooks/use-devices";
+import { useWebSockets } from "@/hooks/use-websockets";
+import axios from "axios";
+import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
-const rooms = [
-  { name: "Living room", count: 6 },
-  { name: "Kitchen", count: 4 },
-  { name: "Bedroom", count: 5 },
-  { name: "Bathroom", count: 2 },
-  { name: "Entrance", count: 3 },
-];
-
-const devicesByRoom: Record<string, any[]> = {
-  "Living room": [
-    { id: 1, icon: Lightbulb, name: "Ambient Lights", value: "78", unit: "%", enabled: true },
-    { id: 2, icon: Snowflake, name: "Climate", value: "21.5", unit: "°C", enabled: true },
-    { id: 3, icon: Speaker, name: "Soundbar", value: "32", unit: "%", enabled: false },
-    { id: 4, icon: Tv, name: "OLED TV", value: "Off", enabled: false },
-  ],
-  Kitchen: [
-    { id: 5, icon: Lightbulb, name: "Strip Lights", value: "60", unit: "%", enabled: true },
-    { id: 6, icon: Wind, name: "Hood Fan", value: "Auto", enabled: true },
-  ],
-  Bedroom: [
-    { id: 7, icon: Lightbulb, name: "Bedside", value: "20", unit: "%", enabled: true },
-    { id: 8, icon: Wind, name: "Ceiling Fan", value: "Auto", enabled: false },
-  ],
-  Bathroom: [{ id: 9, icon: Lightbulb, name: "Mirror Light", value: "100", unit: "%", enabled: true }],
-  Entrance: [{ id: 10, icon: Camera, name: "Front Camera", value: "Live", enabled: true }],
-};
+const API_URL = 'http://192.168.0.66:3000/api';
 
 const Devices = () => {
-  const [activeRoom, setActiveRoom] = useState("Living room");
-  const [brightness, setBrightness] = useState([78]);
-  const [lightOn, setLightOn] = useState(true);
+  const { data: devices = [], isLoading } = useDevices();
+  const { socket } = useWebSockets();
+  const queryClient = useQueryClient();
+  
+  const [activeRoom, setActiveRoom] = useState("All");
+  const [localLiveData, setLocalLiveData] = useState<Record<string, any>>({});
+  const [deviceToRename, setDeviceToRename] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
+  const [deviceToDelete, setDeviceToDelete] = useState<string | null>(null);
+
+  // 1. Obsługa WebSockets (Live Updates + Auto-refresh listy)
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('device_state_update', (data: any) => {
+      setLocalLiveData(prev => ({
+        ...prev,
+        [data.friendlyName]: data.payload
+      }));
+    });
+
+    socket.on('device_list_updated', () => {
+      console.log("🔄 Wykryto zmiany w urządzeniach, odświeżam...");
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+    });
+
+    return () => { 
+      socket.off('device_state_update'); 
+      socket.off('device_list_updated');
+    };
+  }, [socket, queryClient]);
+
+  // 2. Inicjalizacja danych z bazy
+  useEffect(() => {
+    if (devices.length > 0) {
+      const initialData: Record<string, any> = {};
+      devices.forEach(d => {
+        if (d.last_payload) initialData[d.friendly_name] = d.last_payload;
+      });
+      setLocalLiveData(prev => ({ ...initialData, ...prev }));
+    }
+  }, [devices]);
+
+  const handleToggle = async (friendlyName: string) => {
+    try {
+      await axios.post(`${API_URL}/devices/${friendlyName}/set`, {
+        state: 'TOGGLE'
+      });
+    } catch (error) {
+      toast.error(`Błąd sterowania: ${friendlyName}`);
+    }
+  };
+
+  const handleDelete = async (friendlyName: string) => {
+    try {
+      await axios.delete(`${API_URL}/devices/${friendlyName}`);
+      toast.success("Urządzenie zostało usunięte");
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+    } catch (error) {
+      toast.error("Nie udało się usunąć urządzenia");
+    }
+  };
+
+  const handleRename = async (oldName: string, updatedName: string) => {
+    if (oldName === updatedName || !updatedName.trim()) return;
+    try {
+      await axios.put(`${API_URL}/devices/${oldName}/rename`, { new_name: updatedName.trim() });
+      toast.success("Zmieniono nazwę urządzenia");
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+    } catch (error) {
+      toast.error("Nie udało się zmienić nazwy urządzenia");
+    }
+  };
+
+  const rooms = [
+    { name: "All", count: devices.length },
+    { name: "Living room", count: 0 },
+    { name: "Kitchen", count: 0 },
+    { name: "Bedroom", count: 0 },
+  ];
+
+  const filteredDevices = activeRoom === "All" ? devices : [];
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto">
@@ -1378,11 +1454,14 @@ const Devices = () => {
                   className={cn(
                     "w-full flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-medium transition-colors",
                     r.name === activeRoom
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
                       : "text-foreground/70 hover:text-foreground hover:bg-muted/60",
                   )}
                 >
-                  <span>{r.name}</span>
+                  <div className="flex items-center gap-2">
+                    {r.name === "All" && <LayoutGrid className="h-4 w-4" />}
+                    <span>{r.name}</span>
+                  </div>
                   <span className="text-xs opacity-70">{r.count}</span>
                 </button>
               </li>
@@ -1392,82 +1471,110 @@ const Devices = () => {
 
         {/* Devices grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 content-start">
-          {(devicesByRoom[activeRoom] || []).map((d) => (
-            <DeviceTile
-              key={d.id}
-              icon={d.icon}
-              name={d.name}
-              room={activeRoom}
-              value={d.value}
-              unit={d.unit}
-              enabled={d.enabled}
-              onToggle={() => {}}
-            />
-          ))}
+          {isLoading ? (
+            <p className="col-span-2 text-center py-10 text-muted-foreground">Loading devices...</p>
+          ) : filteredDevices.length === 0 ? (
+            <p className="col-span-2 text-center py-10 text-muted-foreground">No devices found.</p>
+          ) : (
+            filteredDevices.map((d) => {
+              const currentData = localLiveData[d.friendly_name] || {};
+              return (
+                <DeviceTile
+                  key={d.id}
+                  icon={Lightbulb}
+                  name={d.friendly_name}
+                  room={activeRoom}
+                  value={currentData.state || "OFF"}
+                  enabled={currentData.state === "ON"}
+                  onToggle={() => handleToggle(d.friendly_name)}
+                  onDelete={() => setDeviceToDelete(d.friendly_name)}
+                  onRename={() => {
+                    setDeviceToRename(d.friendly_name);
+                    setNewName(d.friendly_name);
+                  }}
+                />
+              );
+            })
+          )}
         </div>
 
         {/* Detail panel */}
         <GlassCard variant="strong" className="p-6 h-fit space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">{activeRoom}</p>
-              <h3 className="font-display text-2xl font-semibold">Ambient Lights</h3>
-            </div>
-            <Switch checked={lightOn} onCheckedChange={setLightOn} />
-          </div>
-
-          <div className="rounded-2xl bg-gradient-to-br from-accent/30 to-brand-mist/30 p-8 flex items-center justify-center">
-            <Lightbulb className="h-20 w-20 text-foreground" strokeWidth={1.2} />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium">Brightness</span>
-              <span className="font-display text-lg font-semibold">{brightness[0]}%</span>
-            </div>
-            <Slider value={brightness} onValueChange={setBrightness} max={100} step={1} />
-          </div>
-
-          <div>
-            <p className="text-sm font-medium mb-2">Color preset</p>
-            <div className="flex gap-2">
-              {["#F7E6B8", "#FFFFFF", "#C7E0FF", "#E8C7FF", "#FFC7C7"].map((c) => (
-                <button
-                  key={c}
-                  className="h-9 w-9 rounded-full border-2 border-white shadow-sm"
-                  style={{ background: c }}
-                  aria-label={`Color ${c}`}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-background/60 p-3">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Clock className="h-3 w-3" /> Start
-              </div>
-              <p className="mt-1 font-display text-base font-semibold">19:30</p>
-            </div>
-            <div className="rounded-2xl bg-background/60 p-3">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Clock className="h-3 w-3" /> End
-              </div>
-              <p className="mt-1 font-display text-base font-semibold">23:00</p>
-            </div>
-          </div>
-
-          <button className="w-full rounded-full bg-primary text-primary-foreground py-3 text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition">
-            <Power className="h-4 w-4" /> Apply schedule
-          </button>
+          <p className="text-sm text-muted-foreground text-center py-10">
+            Select a device to see details and advanced controls.
+          </p>
         </GlassCard>
       </div>
+
+      {/* AlertDialog (Usuwanie) */}
+      <AlertDialog open={!!deviceToDelete} onOpenChange={() => setDeviceToDelete(null)}>
+        <AlertDialogContent className="glass border-white/20 rounded-[28px] max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-xl font-semibold">Remove device?</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              Are you sure you want to remove <span className="text-foreground font-medium">{deviceToDelete}</span> from the database? 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 mt-4">
+            <AlertDialogCancel className="rounded-xl border-none bg-muted hover:bg-muted/80 transition-colors">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                if (deviceToDelete) handleDelete(deviceToDelete);
+                setDeviceToDelete(null);
+              }}
+              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog (Zmiana nazwy) */}
+      <Dialog open={!!deviceToRename} onOpenChange={(open) => { if (!open) setDeviceToRename(null) }}>
+        <DialogContent className="glass border-white/20 rounded-[28px] max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display">Rename Device</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Input 
+              value={newName} 
+              onChange={(e) => setNewName(e.target.value)} 
+              placeholder="Enter new device name"
+              className="bg-background/50 border-white/10 rounded-xl"
+              autoFocus
+            />
+          </div>
+          <DialogFooter className="gap-2 mt-4">
+            <Button 
+              variant="outline" 
+              onClick={() => setDeviceToRename(null)} 
+              className="rounded-xl border-none bg-muted hover:bg-muted/80 transition-colors"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => {
+                if (deviceToRename && newName) {
+                  handleRename(deviceToRename, newName);
+                  setDeviceToRename(null);
+                }
+              }}
+              className="rounded-xl transition-colors"
+            >
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
 
 export default Devices;
-
 --- FILE: apps/web/src/App.old.css ---
 .counter {
   font-size: 16px;
@@ -1752,7 +1859,7 @@ export function RoomFilter({ rooms, active, onChange, className }: RoomFilterPro
 }
 
 --- FILE: apps/web/src/components/livora/DeviceTile.tsx ---
-import { LucideIcon } from "lucide-react";
+import { LucideIcon, Trash2, Pencil } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { GlassCard } from "./GlassCard";
 import { cn } from "@/lib/utils";
@@ -1765,6 +1872,8 @@ interface DeviceTileProps {
   unit?: string;
   enabled: boolean;
   onToggle?: (v: boolean) => void;
+  onDelete?: () => void;
+  onRename?: () => void; // <--- Nowy prop
   accent?: boolean;
   className?: string;
 }
@@ -1777,6 +1886,8 @@ export function DeviceTile({
   unit,
   enabled,
   onToggle,
+  onDelete,
+  onRename,
   accent,
   className,
 }: DeviceTileProps) {
@@ -1784,7 +1895,7 @@ export function DeviceTile({
     <GlassCard
       hover
       className={cn(
-        "p-5 flex flex-col gap-4 min-h-[180px]",
+        "p-5 flex flex-col gap-4 min-h-[180px] relative",
         accent && enabled && "ring-1 ring-accent/40",
         className,
       )}
@@ -1801,20 +1912,49 @@ export function DeviceTile({
         <Switch checked={enabled} onCheckedChange={onToggle} />
       </div>
 
-      <div className="mt-auto">
+      <div className="mt-auto relative">
         <p className="text-xs uppercase tracking-wider text-muted-foreground">{room}</p>
-        <h3 className="mt-1 text-base font-semibold text-foreground">{name}</h3>
+        
+        {/* Kontener nazwy + przycisk edycji */}
+        <div className="flex items-center gap-2 mt-1">
+          <h3 className="text-base font-semibold text-foreground truncate max-w-[85%]">{name}</h3>
+          {onRename && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onRename();
+              }}
+              className="text-muted-foreground opacity-40 hover:opacity-100 hover:text-foreground transition-all"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
         {value && (
           <p className="mt-2 font-display text-2xl font-semibold text-foreground">
             {value}
             {unit && <span className="ml-1 text-sm font-medium text-muted-foreground">{unit}</span>}
           </p>
         )}
+
+        {onDelete && (
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="absolute right-0 bottom-0 p-2 text-muted-foreground hover:text-destructive transition-colors"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </GlassCard>
   );
 }
-
 --- FILE: apps/web/src/components/livora/GlassCard.tsx ---
 import * as React from "react";
 import { cn } from "@/lib/utils";
@@ -1996,39 +2136,98 @@ export function AppLayout() {
 }
 
 --- FILE: apps/web/src/components/livora/Topbar.tsx ---
-import { Bell, Search } from "lucide-react";
+import { Bell, Plus, Loader2, Radio } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Switch } from "@/components/ui/switch";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import axios from "axios";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+const API_URL = 'http://192.168.0.66:3000/api';
 
 export function Topbar() {
   const [home, setHome] = useState(true);
+  const [isPairing, setIsPairing] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(0);
+
+  // Odliczanie czasu parowania
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (isPairing && timeLeft > 0) {
+      timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
+    } else if (timeLeft === 0) {
+      setIsPairing(false);
+    }
+    return () => clearInterval(timer);
+  }, [isPairing, timeLeft]);
+
+  const togglePairing = async () => {
+    const newState = !isPairing;
+    try {
+      await axios.post(`${API_URL}/bridge/permit_join`, { permit: newState });
+      setIsPairing(newState);
+      
+      if (newState) {
+        setTimeLeft(180); // 3 minuty
+        toast.info("Tryb parowania aktywowany", {
+          description: "Twoja sieć Zigbee jest teraz otwarta dla nowych urządzeń.",
+          duration: 5000,
+        });
+      } else {
+        setTimeLeft(0);
+        toast.success("Tryb parowania wyłączony");
+      }
+    } catch (error) {
+      toast.error("Błąd sieci", { description: "Nie udało się zmienić trybu parowania." });
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-3 px-4 md:px-8">
       <SidebarTrigger className="rounded-xl glass h-10 w-10" />
 
       <div className="hidden md:block flex-1">
         <h2 className="font-display text-lg font-semibold leading-tight">Hi, Patryk</h2>
-        <p className="text-xs text-muted-foreground">Welcome home — everything is calm.</p>
+        <p className="text-xs text-muted-foreground">
+          {isPairing ? `Pairing active: ${formatTime(timeLeft)}` : "Welcome home — everything is calm."}
+        </p>
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        <div className="hidden md:flex items-center gap-2 glass rounded-full pl-4 pr-2 py-1.5">
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <input
-            placeholder="Search devices, scenes…"
-            className="bg-transparent outline-none text-sm w-56 placeholder:text-muted-foreground"
-          />
-        </div>
+        {/* PRZYCISK PAROWANIA ZAMIAST SEARCH */}
+        <button
+          onClick={togglePairing}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-full transition-all duration-500",
+            isPairing 
+              ? "bg-orange-500 text-white animate-pulse shadow-[0_0_15px_rgba(249,115,22,0.5)]" 
+              : "glass hover:bg-muted/50 text-foreground"
+          )}
+        >
+          {isPairing ? (
+            <>
+              <Radio className="h-4 w-4 animate-bounce" />
+              <span className="text-sm font-medium">Connecting... ({formatTime(timeLeft)})</span>
+            </>
+          ) : (
+            <>
+              <Plus className="h-4 w-4" />
+              <span className="text-sm font-medium text-muted-foreground">Connect Device</span>
+            </>
+          )}
+        </button>
 
-        <div className="flex items-center gap-2 glass rounded-full px-3 py-2">
-          <span className={`text-xs font-medium ${home ? "text-foreground" : "text-muted-foreground"}`}>
-            Home
-          </span>
+        <div className="flex items-center gap-2 glass rounded-full px-3 py-2 ml-2">
+          <span className={`text-xs font-medium ${home ? "text-foreground" : "text-muted-foreground"}`}>Home</span>
           <Switch checked={!home} onCheckedChange={(v) => setHome(!v)} />
-          <span className={`text-xs font-medium ${!home ? "text-foreground" : "text-muted-foreground"}`}>
-            Away
-          </span>
+          <span className={`text-xs font-medium ${!home ? "text-foreground" : "text-muted-foreground"}`}>Away</span>
         </div>
 
         <button className="relative h-10 w-10 rounded-full glass flex items-center justify-center">
@@ -2039,7 +2238,6 @@ export function Topbar() {
     </header>
   );
 }
-
 --- FILE: apps/web/src/components/ui/collapsible.tsx ---
 import * as CollapsiblePrimitive from "@radix-ui/react-collapsible";
 

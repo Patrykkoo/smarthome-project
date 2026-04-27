@@ -1,0 +1,13 @@
+1. Przy dodawaniu urządzenia dziwnie się zachowuje switch.
+Urządzenie, które jest włączone przy połączeniu najpierw jest
+pokazane jako włączone, później przy kliknięciu zmiany nazwy
+zmienia się na wyłączone.
+
+2. Przycisk od łączenia urządzeń, w trakcie odliczania czasu, zmienia
+długość w zaleności od wielkości cyfr.
+
+3. Ikonki powiadomień
+
+4. Responsywność w przeglądarce
+
+5. Zawartość kafelków w Devices & Rooms (napis ON/OFF)
