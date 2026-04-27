@@ -11,8 +11,9 @@ dist-ssr/
 .env
 .env.local
 
-# Baza danych i pliki konfiguracyjne Zigbee2MQTT
+# Baza danych i pliki Zigbee2MQTT
 zigbee2mqtt-data/
+timescaledb-data/
 
 # Pliki edytorów i systemowe
 .vscode/*
