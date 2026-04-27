@@ -1,0 +1,41 @@
+services:
+  mqtt:
+    image: eclipse-mosquitto:2.0
+    container_name: mosquitto
+    ports:
+      - "1883:1883" # Port MQTT
+      - "9001:9001" # Port WebSocket
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    restart: unless-stopped
+
+  zigbee2mqtt:
+    image: koenkk/zigbee2mqtt
+    container_name: zigbee2mqtt
+    depends_on:
+      - mqtt
+    volumes:
+      - ./zigbee2mqtt-data:/app/data
+      - /run/udev:/run/udev:ro
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0 # Zigbee2MQTT Dongle
+    ports:
+      - "8099:8099" # Port UI Zigbee2MQTT
+    environment:
+      - TZ=Europe/Warsaw
+    restart: unless-stopped
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: timescaledb
+    environment:
+      - POSTGRES_USER=smarthome_user
+      - POSTGRES_PASSWORD=haslo123
+      - POSTGRES_DB=smarthome_db
+    ports:
+      - "5432:5432" # Port PostgreSQL
+    volumes:
+      - ./timescaledb-data:/var/lib/postgresql/data
+    restart: unless-stopped
