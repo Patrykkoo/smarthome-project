@@ -1,4 +1,4 @@
-import { LucideIcon, Trash2, Pencil } from "lucide-react";
+import { LucideIcon } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { GlassCard } from "./GlassCard";
 import { cn } from "@/lib/utils";
@@ -7,35 +7,34 @@ interface DeviceTileProps {
   icon: LucideIcon;
   name: string;
   room: string;
+  statusLabel?: string;
+  statusColor?: string;
   value?: string;
   unit?: string;
+  livePulse?: boolean;
   enabled: boolean;
+  offline?: boolean; // NOWOŚĆ: Tryb offline
   onToggle?: (v: boolean) => void;
-  onDelete?: () => void;
-  onRename?: () => void; // <--- Nowy prop
+  onClick?: () => void;
   accent?: boolean;
+  selected?: boolean;
+  iconColor?: string;
   className?: string;
 }
 
 export function DeviceTile({
-  icon: Icon,
-  name,
-  room,
-  value,
-  unit,
-  enabled,
-  onToggle,
-  onDelete,
-  onRename,
-  accent,
-  className,
+  icon: Icon, name, room, statusLabel, statusColor, value, unit, livePulse, enabled, offline,
+  onToggle, onClick, accent, selected, iconColor, className,
 }: DeviceTileProps) {
   return (
     <GlassCard
-      hover
+      onClick={onClick}
       className={cn(
-        "p-5 flex flex-col gap-4 min-h-[180px] relative",
-        accent && enabled && "ring-1 ring-accent/40",
+        "p-5 flex flex-col gap-4 min-h-[180px] transition-all duration-300",
+        onClick && "cursor-pointer",
+        accent && enabled && !offline && "ring-1 ring-accent/40",
+        selected && "ring-2 ring-primary/60 shadow-lg shadow-primary/10",
+        offline && "opacity-60", // Przyciemnienie wyłączonego urządzenia
         className,
       )}
     >
@@ -43,53 +42,58 @@ export function DeviceTile({
         <div
           className={cn(
             "flex h-11 w-11 items-center justify-center rounded-2xl transition-colors",
-            enabled ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+            offline ? "bg-muted text-muted-foreground/50" : // Szary styl dla offline
+            enabled
+              ? iconColor ? "text-primary-foreground" : "bg-primary text-primary-foreground"
+              : "bg-muted text-muted-foreground",
           )}
+          style={enabled && iconColor && !offline ? { backgroundColor: iconColor } : undefined}
         >
           <Icon className="h-5 w-5" />
         </div>
-        <Switch checked={enabled} onCheckedChange={onToggle} />
+        <div onClick={(e) => { e.stopPropagation(); if (offline) e.preventDefault(); }}>
+          <Switch checked={enabled && !offline} disabled={offline} onCheckedChange={onToggle} />
+        </div>
       </div>
 
-      <div className="mt-auto relative">
+      <div className="mt-auto">
         <p className="text-xs uppercase tracking-wider text-muted-foreground">{room}</p>
+        <h3 className="mt-1 text-base font-semibold text-foreground truncate">{name}</h3>
         
-        {/* Kontener nazwy + przycisk edycji */}
-        <div className="flex items-center gap-2 mt-1">
-          <h3 className="text-base font-semibold text-foreground truncate max-w-[85%]">{name}</h3>
-          {onRename && (
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onRename();
-              }}
-              className="text-muted-foreground opacity-40 hover:opacity-100 hover:text-foreground transition-all"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        {value && (
+        {value !== undefined && !offline && (
           <p className="mt-2 font-display text-2xl font-semibold text-foreground">
             {value}
             {unit && <span className="ml-1 text-sm font-medium text-muted-foreground">{unit}</span>}
           </p>
         )}
 
-        {onDelete && (
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="absolute right-0 bottom-0 p-2 text-muted-foreground hover:text-destructive transition-colors"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        )}
+        <div className={cn("inline-flex items-center gap-2 text-sm text-muted-foreground", value !== undefined && !offline ? "mt-1" : "mt-2")}>
+          {offline ? (
+            <>
+              <span className="h-2.5 w-2.5 rounded-full bg-destructive/60" />
+              <span className="font-medium text-destructive/80">Offline</span>
+            </>
+          ) : (
+            <>
+              {livePulse ? (
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-60 animate-ping" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-500" />
+                </span>
+              ) : (
+                statusColor && enabled && (
+                  <span
+                    className="h-2.5 w-2.5 rounded-full ring-1 ring-border/60"
+                    style={{ backgroundColor: statusColor }}
+                  />
+                )
+              )}
+              <span className={cn("font-medium", value !== undefined ? "text-muted-foreground" : "text-foreground/80")}>
+                {statusLabel}
+              </span>
+            </>
+          )}
+        </div>
       </div>
     </GlassCard>
   );

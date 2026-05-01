@@ -149,7 +149,7 @@ app.put('/api/devices/:friendly_name/rename', (req, res) => {
 
 export const startAPI = () => {
     const PORT = 3000;
-    server.listen(PORT, () => {
+    server.listen(PORT, '0.0.0.0', () => {
         console.log(`API server & WebSocket running on port ${PORT}`);
     });
 };

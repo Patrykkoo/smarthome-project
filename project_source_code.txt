@@ -1,5 +1,415 @@
+=========================================
+FILE: apps/backend/src/api.ts
+=========================================
+import express from 'express';
+import cors from 'cors';
+import pool from './db';
+import * as mqtt from 'mqtt';
+import http from 'http';
+import { Server } from 'socket.io';
 
---- FILE: apps/web/src/hooks/use-mobile.tsx ---
+const app = express();
+const mqttClient = mqtt.connect('mqtt://localhost:1883');
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: '*',
+        methods: ['GET', 'POST']
+    }
+})
+
+app.use(cors());
+app.use(express.json());
+
+io.on('connection', (socket) => {
+    console.log('New client connected to WebSockets');
+
+    socket.on('disconnect', () => {
+        console.log('Client disconnected from WebSockets');
+    });
+})
+
+export const emitDeviceState = (friendlyName: string, payload: any) => {
+    io.emit('device_state_update', { friendlyName, payload });
+};
+
+export const emitDevicesUpdated = () => {
+    io.emit('device_list_updated');
+};
+
+app.get('/api/devices', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT d.*, t.payload as last_payload 
+            FROM devices d
+            LEFT JOIN LATERAL (
+                SELECT payload FROM telemetry
+                WHERE device_id = d.id
+                ORDER BY time DESC
+                LIMIT 1
+            ) t ON true
+            ORDER BY d.last_seen DESC
+        `);
+        res.json(result.rows);
+    } catch (error) {
+        console.error('API Error:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+app.post('/api/bridge/permit_join', (req, res) => {
+    const { permit } = req.body; 
+    
+    const topic = 'zigbee2mqtt/bridge/request/permit_join';
+    const payload = JSON.stringify({ 
+        value: permit, 
+        time: permit ? 180 : 0 
+    });
+
+    mqttClient.publish(topic, payload, (err) => {
+        if (err) {
+            console.error('Permit join error:', err);
+            return res.status(500).json({ error: 'Błąd MQTT' });
+        }
+        res.json({ message: 'Net mode changed', permit });
+    });
+});
+
+app.post('/api/devices/:friendly_name/set', (req, res) => {
+    const { friendly_name } = req.params;
+    const payload = req.body;
+
+    const topic = `zigbee2mqtt/${friendly_name}/set`;
+
+    mqttClient.publish(topic, JSON.stringify(payload), (err) => {
+        if (err) {
+            console.error(`Failed to publish to ${friendly_name}:`, err);
+            return res.status(500).json({ error: 'Comunication Error' });
+        }
+
+        console.log(`Command sent to [${friendly_name}]:`, payload);
+        res.json({ message: 'Successfully sent command', topic, payload });
+    });
+});
+
+app.delete('/api/devices/:friendly_name', async (req, res) => {
+    const { friendly_name } = req.params;
+
+    const topic = 'zigbee2mqtt/bridge/request/device/remove';
+    const payload = JSON.stringify({ id: friendly_name, force: true });
+
+    mqttClient.publish(topic, payload, async (err) => {
+        if (err) {
+            console.error(`Błąd MQTT podczas usuwania ${friendly_name}:`, err);
+            return res.status(500).json({ error: 'Błąd komunikacji MQTT' });
+        }
+
+        try {
+            const devResult = await pool.query('SELECT id FROM devices WHERE friendly_name = $1', [friendly_name]);
+            
+            if (devResult.rows.length > 0) {
+                const deviceId = devResult.rows[0].id;
+                await pool.query('DELETE FROM telemetry WHERE device_id = $1', [deviceId]);
+                await pool.query('DELETE FROM devices WHERE id = $1', [deviceId]);
+            }
+
+            console.log(`Device [${friendly_name}] deleted.`);
+            
+            emitDevicesUpdated();
+            
+            res.json({ message: 'Device deleted' });
+        } catch (dbError) {
+            console.error('Database error during deleting:', dbError);
+            res.status(500).json({ error: 'Database error' });
+        }
+    });
+});
+
+app.put('/api/devices/:friendly_name/rename', (req, res) => {
+    const { friendly_name } = req.params;
+    const { new_name } = req.body;
+
+    if (!new_name || new_name.trim() === '') {
+        return res.status(400).json({ error: 'Name can not be empty' });
+    }
+
+    const topic = 'zigbee2mqtt/bridge/request/device/rename';
+    const payload = JSON.stringify({ 
+        from: friendly_name, 
+        to: new_name 
+    });
+
+    mqttClient.publish(topic, payload, (err) => {
+        if (err) {
+            console.error(`Error while changing device name from ${friendly_name} to ${new_name}:`, err);
+            return res.status(500).json({ error: 'Communication error' });
+        }
+        
+        console.log(`Changing device name: [${friendly_name}] -> [${new_name}]`);
+        res.json({ message: 'Changing device name' });
+    });
+});
+
+export const startAPI = () => {
+    const PORT = 3000;
+    server.listen(PORT, '0.0.0.0', () => {
+        console.log(`API server & WebSocket running on port ${PORT}`);
+    });
+};
+
+=========================================
+FILE: apps/backend/src/index.ts
+=========================================
+import * as mqtt from 'mqtt';
+import pool, { initDB } from './db';
+import { startAPI, emitDeviceState, emitDevicesUpdated } from './api';
+
+const start = async () => {
+    await initDB();
+    startAPI();
+
+    const client = mqtt.connect('mqtt://localhost:1883');
+
+    client.on('connect', () => {
+        console.log('Connected with MQTT');
+
+        client.subscribe('zigbee2mqtt/bridge/devices')
+        client.subscribe('zigbee2mqtt/#');
+    });
+
+    client.on('message', async (topic, message) => {
+        try {
+            const rawPayload = message.toString();
+            const data = JSON.parse(rawPayload);
+            
+            // Dynamiczne wykrywanie urządzeń
+            if (topic === 'zigbee2mqtt/bridge/devices') {
+                for (const device of data) {
+                    if (device.type === 'Coordinator') continue;
+
+                    const id = device.ieee_address;
+                    const friendlyName = device.friendly_name;
+
+                    const exposes = JSON.stringify(device.definition?.exposes || []);
+
+                    await pool.query(`
+                        INSERT INTO devices (id, friendly_name, exposes, last_seen)
+                        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                        ON CONFLICT (id) DO UPDATE 
+                        SET friendly_name = EXCLUDED.friendly_name, 
+                            exposes = EXCLUDED.exposes,
+                            last_seen = CURRENT_TIMESTAMP;
+                    `, [id, friendlyName, exposes]);
+                }
+
+                console.log('Devices updated');
+                emitDevicesUpdated();
+                return;
+            }
+
+            if (topic.startsWith('zigbee2mqtt/bridge')) return;
+
+            // --- NOWA LOGIKA NAZW I DOSTĘPNOŚCI ---
+            let friendlyName = topic.replace('zigbee2mqtt/', '');
+            let isAvailability = false;
+
+            // Jeśli to wiadomość o braku połączenia, obcinamy końcówkę "/availability"
+            if (friendlyName.endsWith('/availability')) {
+                friendlyName = friendlyName.replace('/availability', '');
+                isAvailability = true;
+            }
+
+            const deviceResult = await pool.query(
+                'SELECT id FROM devices WHERE friendly_name = $1',
+                [friendlyName]
+            );
+
+            if (deviceResult.rows.length > 0) {
+                const deviceId = deviceResult.rows[0].id;
+                
+                // Jeśli to tylko status offline/online, wysyłamy na front i kończymy
+                if (isAvailability) {
+                    // Zigbee2MQTT na temacie availability wysyła najczęściej {"state": "offline"}
+                    emitDeviceState(friendlyName, { availability: data.state });
+                    return; 
+                }
+
+                // Standardowy zapis pomiarów (telemetrii)
+                const payloadJson = JSON.stringify(data);
+
+                await pool.query(`
+                    INSERT INTO telemetry (time, device_id, payload)
+                    VALUES (CURRENT_TIMESTAMP, $1, $2)
+                    `, [deviceId, payloadJson]);
+
+                console.log(`Telemetry saved for [${friendlyName}].`);
+                
+                emitDeviceState(friendlyName, data);
+            }
+        } catch (error) {
+            console.error(`Error processing message: ${topic}`, error);
+        }
+    });
+};
+
+start();
+
+=========================================
+FILE: apps/backend/src/db.ts
+=========================================
+import { Pool } from 'pg';
+
+const pool = new Pool({
+    user: 'smarthome_user',
+    host: 'localhost',
+    database: 'smarthome_db',
+    password: 'haslo123',
+    port: 5432,
+});
+
+export const initDB = async () => {
+    const client = await pool.connect();
+    try {
+        console.log('Initializing database');
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS devices (
+                id VARCHAR(255) PRIMARY KEY,
+                friendly_name VARCHAR(255) NOT NULL,
+                exposes JSONB,
+                last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS telemetry (
+                time TIMESTAMPTZ NOT NULL,
+                device_id VARCHAR(255) REFERENCES devices(id) ON DELETE CASCADE,
+                payload JSONB NOT NULL
+            );
+        `);
+
+        await client.query(`
+            SELECT create_hypertable('telemetry', 'time', if_not_exists => TRUE);
+        `);
+    } catch (error) {
+        console.error('Initialization error:', error);
+    } finally {
+        client.release();
+    }
+};
+
+export default pool;
+
+=========================================
+FILE: apps/web/tailwind.config.ts
+=========================================
+import type { Config } from "tailwindcss";
+
+export default {
+  darkMode: ["class"],
+  content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
+  prefix: "",
+  theme: {
+    container: {
+      center: true,
+      padding: "2rem",
+      screens: { "2xl": "1400px" },
+    },
+    extend: {
+      fontFamily: {
+        sans: ["Manrope", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["Sora", "ui-sans-serif", "system-ui", "sans-serif"],
+      },
+      colors: {
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+        brand: {
+          mist: "hsl(var(--brand-mist))",
+          steel: "hsl(var(--brand-steel))",
+          sky: "hsl(var(--brand-sky))",
+          graphite: "hsl(var(--brand-graphite))",
+        },
+        sidebar: {
+          DEFAULT: "hsl(var(--sidebar-background))",
+          foreground: "hsl(var(--sidebar-foreground))",
+          primary: "hsl(var(--sidebar-primary))",
+          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
+          accent: "hsl(var(--sidebar-accent))",
+          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
+          border: "hsl(var(--sidebar-border))",
+          ring: "hsl(var(--sidebar-ring))",
+        },
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 6px)",
+        sm: "calc(var(--radius) - 12px)",
+      },
+      keyframes: {
+        "accordion-down": {
+          from: { height: "0" },
+          to: { height: "var(--radix-accordion-content-height)" },
+        },
+        "accordion-up": {
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
+        },
+        "fade-in": {
+          from: { opacity: "0", transform: "translateY(8px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+      },
+      animation: {
+        "accordion-down": "accordion-down 0.2s ease-out",
+        "accordion-up": "accordion-up 0.2s ease-out",
+        "fade-in": "fade-in 0.4s ease-out",
+      },
+    },
+  },
+  plugins: [require("tailwindcss-animate")],
+} satisfies Config;
+
+
+=========================================
+FILE: apps/web/.env
+=========================================
+VITE_API_URL=http://192.168.1.128:3000/api
+VITE_WS_URL=ws://192.168.1.128:3000
+
+=========================================
+FILE: apps/web/src/hooks/use-mobile.tsx
+=========================================
 import * as React from "react";
 
 const MOBILE_BREAKPOINT = 768;
@@ -20,11 +430,14 @@ export function useIsMobile() {
   return !!isMobile;
 }
 
---- FILE: apps/web/src/hooks/use-websockets.ts ---
+
+=========================================
+FILE: apps/web/src/hooks/use-websockets.ts
+=========================================
 import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = 'http://192.168.0.66:3000';
+const SOCKET_URL = import.meta.env.VITE_WS_URL;
 
 export const useWebSockets = () => {
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -60,7 +473,10 @@ export const useWebSockets = () => {
 
   return { socket };
 };
---- FILE: apps/web/src/hooks/use-toast.ts ---
+
+=========================================
+FILE: apps/web/src/hooks/use-toast.ts
+=========================================
 import * as React from "react";
 
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast";
@@ -248,11 +664,14 @@ function useToast() {
 
 export { useToast, toast };
 
---- FILE: apps/web/src/hooks/use-devices.ts ---
+
+=========================================
+FILE: apps/web/src/hooks/use-devices.ts
+=========================================
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 
-const API_URL = 'http://192.168.0.66:3000/api';
+const API_URL = import.meta.env.VITE_API_URL;
 
 export interface Device {
     id: string;
@@ -273,216 +692,10 @@ export const useDevices = () => {
         queryFn: fetchDevices,
     });
 };
---- FILE: apps/web/src/index.css ---
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
 
-/* Livora design system — liquid glass on white. All colors HSL. */
-
-@layer base {
-  :root {
-    /* Brand palette (HSL)
-       #F0F1F3 → 220 13% 95%
-       #C4D3D9 → 198 22% 81%
-       #9DB9C8 → 203 28% 70%
-       #89B1E1 → 212 58% 71%
-       #25272B → 222 8% 16%
-    */
-    --background: 220 13% 95%;
-    --foreground: 222 8% 16%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 222 8% 16%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 8% 16%;
-
-    --primary: 222 8% 16%;
-    --primary-foreground: 220 13% 97%;
-
-    --secondary: 198 22% 81%;
-    --secondary-foreground: 222 8% 16%;
-
-    --muted: 220 13% 92%;
-    --muted-foreground: 222 6% 40%;
-
-    --accent: 212 58% 71%;
-    --accent-foreground: 222 8% 16%;
-
-    --brand-mist: 198 22% 81%;
-    --brand-steel: 203 28% 70%;
-    --brand-sky: 212 58% 71%;
-    --brand-graphite: 222 8% 16%;
-
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 220 14% 88%;
-    --input: 220 14% 88%;
-    --ring: 222 8% 16%;
-
-    --radius: 1.5rem;
-
-    /* Glass tokens */
-    --glass-bg: 0 0% 100%;
-    --glass-border: 0 0% 100%;
-    --glass-shadow: 220 30% 30%;
-
-    /* Sidebar */
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 222 8% 16%;
-    --sidebar-primary: 222 8% 16%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 13% 94%;
-    --sidebar-accent-foreground: 222 8% 16%;
-    --sidebar-border: 220 14% 90%;
-    --sidebar-ring: 212 58% 71%;
-  }
-
-  .dark {
-    --background: 222 12% 8%;
-    --foreground: 220 13% 95%;
-    --card: 222 12% 12%;
-    --card-foreground: 220 13% 95%;
-    --popover: 222 12% 12%;
-    --popover-foreground: 220 13% 95%;
-    --primary: 220 13% 95%;
-    --primary-foreground: 222 12% 8%;
-    --secondary: 222 10% 18%;
-    --secondary-foreground: 220 13% 95%;
-    --muted: 222 10% 16%;
-    --muted-foreground: 220 8% 65%;
-    --accent: 212 58% 71%;
-    --accent-foreground: 222 12% 8%;
-    --destructive: 0 62% 40%;
-    --destructive-foreground: 220 13% 95%;
-    --border: 222 10% 20%;
-    --input: 222 10% 20%;
-    --ring: 212 58% 71%;
-    --glass-bg: 222 12% 16%;
-    --glass-border: 220 13% 95%;
-    --glass-shadow: 0 0% 0%;
-    --sidebar-background: 222 12% 10%;
-    --sidebar-foreground: 220 13% 95%;
-    --sidebar-primary: 212 58% 71%;
-    --sidebar-primary-foreground: 222 12% 8%;
-    --sidebar-accent: 222 10% 16%;
-    --sidebar-accent-foreground: 220 13% 95%;
-    --sidebar-border: 222 10% 20%;
-    --sidebar-ring: 212 58% 71%;
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-
-  html {
-    font-family: "Manrope", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  }
-
-  body {
-    @apply bg-background text-foreground antialiased;
-    font-feature-settings: "ss01", "cv11";
-  }
-
-  h1, h2, h3, h4, h5, h6, .font-display {
-    font-family: "Sora", ui-sans-serif, system-ui, sans-serif;
-    letter-spacing: -0.02em;
-  }
-}
-
-@layer components {
-  /* Liquid glass surface */
-  .glass {
-    background: linear-gradient(
-      180deg,
-      hsl(var(--glass-bg) / 0.72) 0%,
-      hsl(var(--glass-bg) / 0.55) 100%
-    );
-    backdrop-filter: blur(28px) saturate(180%);
-    -webkit-backdrop-filter: blur(28px) saturate(180%);
-    border: 1px solid hsl(var(--glass-border) / 0.6);
-    box-shadow:
-      0 1px 0 0 hsl(var(--glass-border) / 0.8) inset,
-      0 20px 50px -20px hsl(var(--glass-shadow) / 0.18),
-      0 8px 24px -12px hsl(var(--glass-shadow) / 0.12);
-  }
-
-  .glass-strong {
-    background: linear-gradient(
-      180deg,
-      hsl(var(--glass-bg) / 0.88) 0%,
-      hsl(var(--glass-bg) / 0.7) 100%
-    );
-    backdrop-filter: blur(40px) saturate(200%);
-    -webkit-backdrop-filter: blur(40px) saturate(200%);
-    border: 1px solid hsl(var(--glass-border) / 0.7);
-    box-shadow:
-      0 1px 0 0 hsl(var(--glass-border) / 0.9) inset,
-      0 24px 60px -20px hsl(var(--glass-shadow) / 0.22);
-  }
-
-  .glass-hover {
-    @apply transition-all duration-300 ease-out;
-  }
-  .glass-hover:hover {
-    transform: translateY(-2px);
-    box-shadow:
-      0 1px 0 0 hsl(var(--glass-border) / 0.9) inset,
-      0 28px 60px -20px hsl(var(--glass-shadow) / 0.25),
-      0 12px 28px -12px hsl(var(--glass-shadow) / 0.18);
-  }
-
-  /* Ambient background blobs (under glass) */
-  .ambient-bg {
-    position: relative;
-    isolation: isolate;
-    overflow: hidden;
-  }
-  .ambient-bg::before,
-  .ambient-bg::after {
-    content: "";
-    position: absolute;
-    z-index: -1;
-    border-radius: 9999px;
-    filter: blur(80px);
-    opacity: 0.55;
-    pointer-events: none;
-  }
-  .ambient-bg::before {
-    width: 520px;
-    height: 520px;
-    top: -120px;
-    left: -80px;
-    background: radial-gradient(circle, hsl(var(--brand-sky) / 0.7), transparent 70%);
-  }
-  .ambient-bg::after {
-    width: 620px;
-    height: 620px;
-    bottom: -180px;
-    right: -120px;
-    background: radial-gradient(circle, hsl(var(--brand-mist) / 0.8), transparent 70%);
-  }
-
-  .ambient-bg .blob-extra {
-    position: absolute;
-    z-index: -1;
-    width: 380px;
-    height: 380px;
-    border-radius: 9999px;
-    filter: blur(90px);
-    opacity: 0.45;
-    background: radial-gradient(circle, hsl(var(--brand-steel) / 0.75), transparent 70%);
-    top: 40%;
-    left: 45%;
-    pointer-events: none;
-  }
-}
-
---- FILE: apps/web/src/App.tsx ---
+=========================================
+FILE: apps/web/src/App.tsx
+=========================================
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -529,7 +742,10 @@ const App = () => (
 );
 
 export default App;
---- FILE: apps/web/src/lib/utils.ts ---
+
+=========================================
+FILE: apps/web/src/lib/utils.ts
+=========================================
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -537,7 +753,68 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
---- FILE: apps/web/src/App.old.tsx ---
+
+=========================================
+FILE: apps/web/src/lib/color.ts
+=========================================
+// Color helpers for Livora device controls.
+
+export function hexToHsl(hex: string): { h: number; s: number; l: number } {
+  const m = hex.replace("#", "");
+  const full = m.length === 3 ? m.split("").map((c) => c + c).join("") : m;
+  const r = parseInt(full.slice(0, 2), 16) / 255;
+  const g = parseInt(full.slice(2, 4), 16) / 255;
+  const b = parseInt(full.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) * 60; break;
+      case g: h = ((b - r) / d + 2) * 60; break;
+      default: h = ((r - g) / d + 4) * 60;
+    }
+  }
+  return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
+}
+
+export function hslToHex(h: number, s: number, l: number): string {
+  const sN = s / 100;
+  const lN = l / 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = sN * Math.min(lN, 1 - lN);
+  const f = (n: number) => {
+    const c = lN - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    return Math.round(c * 255).toString(16).padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`.toUpperCase();
+}
+
+/** Approx. Tanner Helland's color-temperature → RGB. ~1500K → 8000K. */
+export function kelvinToHex(kelvin: number): string {
+  const t = Math.max(1000, Math.min(40000, kelvin)) / 100;
+  let r: number, g: number, b: number;
+  if (t <= 66) {
+    r = 255;
+    g = 99.4708025861 * Math.log(t) - 161.1195681661;
+    b = t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  } else {
+    r = 329.698727446 * Math.pow(t - 60, -0.1332047592);
+    g = 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+    b = 255;
+  }
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  const toHex = (v: number) => clamp(v).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+}
+
+=========================================
+FILE: apps/web/src/App.old.tsx
+=========================================
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
@@ -852,7 +1129,10 @@ function App() {
 }
 
 export default App;
---- FILE: apps/web/src/pages/Scenes.tsx ---
+
+=========================================
+FILE: apps/web/src/pages/Scenes.tsx
+=========================================
 import { useState } from "react";
 import { Sun, Sparkles, PartyPopper, Moon, Film, Coffee, Plus, Clock } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
@@ -956,7 +1236,10 @@ const Scenes = () => {
 
 export default Scenes;
 
---- FILE: apps/web/src/pages/Energy.tsx ---
+
+=========================================
+FILE: apps/web/src/pages/Energy.tsx
+=========================================
 import { useState } from "react";
 import { Lightbulb, Snowflake, Camera, Speaker, Tv, Wind } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
@@ -1126,7 +1409,10 @@ const Energy = () => {
 
 export default Energy;
 
---- FILE: apps/web/src/pages/Index.tsx ---
+
+=========================================
+FILE: apps/web/src/pages/Index.tsx
+=========================================
 import { useState } from "react";
 import {
   Cloud,
@@ -1293,7 +1579,10 @@ const Dashboard = () => {
 
 export default Dashboard;
 
---- FILE: apps/web/src/pages/NotFound.tsx ---
+
+=========================================
+FILE: apps/web/src/pages/NotFound.tsx
+=========================================
 import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
 
@@ -1319,17 +1608,28 @@ const NotFound = () => {
 
 export default NotFound;
 
---- FILE: apps/web/src/pages/Devices.tsx ---
-import { useState, useEffect } from "react";
-import { Lightbulb, LayoutGrid } from "lucide-react";
+
+=========================================
+FILE: apps/web/src/pages/Devices.tsx
+=========================================
+import { useState, useEffect, useRef } from "react";
+import { 
+  Lightbulb, LayoutGrid, Pencil, Trash2, Thermometer, Sun, Palette, Sparkles, Signal,
+  Plug, Lock, Unlock, Timer, Zap, Activity, BatteryCharging, Minus, Plus, RotateCcw, WifiOff
+} from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
 import { DeviceTile } from "@/components/livora/DeviceTile";
+import { ColorWheel } from "@/components/livora/ColorWheel";
 import { cn } from "@/lib/utils";
 import { useDevices } from "@/hooks/use-devices";
 import { useWebSockets } from "@/hooks/use-websockets";
 import axios from "axios";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { hexToHsl, hslToHex, kelvinToHex } from "@/lib/color";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1350,7 +1650,31 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
-const API_URL = 'http://192.168.0.66:3000/api';
+const API_URL = import.meta.env.VITE_API_URL;
+
+const effectNames: Record<string, string> = {
+  none: "None",
+  blink: "Blink",
+  breathe: "Breathe",
+  channel_change: "Signal flash",
+  colorloop: "Color loop"
+};
+
+const lightStatusLabel = (isOn: boolean, brightness: number, colorMode: string, kelvin?: number, hexColor?: string) => {
+  if (!isOn) return "Off";
+  let mode = "Custom";
+  
+  if (colorMode === "color_temp" || (kelvin && colorMode !== "hs" && colorMode !== "xy")) {
+    if (kelvin != null) {
+      mode = kelvin >= 4500 ? "Cold" : kelvin >= 3000 ? "Neutral" : "Warm";
+    }
+  } else if (hexColor) {
+    const { s, l } = hexToHsl(hexColor);
+    if (s < 12 || l > 92) mode = "White";
+  }
+  
+  return `${mode} · ${brightness}%`;
+};
 
 const Devices = () => {
   const { data: devices = [], isLoading } = useDevices();
@@ -1359,51 +1683,93 @@ const Devices = () => {
   
   const [activeRoom, setActiveRoom] = useState("All");
   const [localLiveData, setLocalLiveData] = useState<Record<string, any>>({});
+  
   const [deviceToRename, setDeviceToRename] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [deviceToDelete, setDeviceToDelete] = useState<string | null>(null);
+  
+  const [selectedDevice, setSelectedDevice] = useState<any | null>(null);
+  
+  const [deviceEffects, setDeviceEffects] = useState<Record<string, string>>({});
+  const [preEffectState, setPreEffectState] = useState<Record<string, any>>({});
 
-  // 1. Obsługa WebSockets (Live Updates + Auto-refresh listy)
+  const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [wheelCache, setWheelCache] = useState<Record<string, {h: number, s: number}>>({});
+
   useEffect(() => {
     if (!socket) return;
-
     socket.on('device_state_update', (data: any) => {
       setLocalLiveData(prev => ({
         ...prev,
-        [data.friendlyName]: data.payload
+        [data.friendlyName]: { ...(prev[data.friendlyName] || {}), ...data.payload }
       }));
     });
-
-    socket.on('device_list_updated', () => {
-      console.log("🔄 Wykryto zmiany w urządzeniach, odświeżam...");
-      queryClient.invalidateQueries({ queryKey: ['devices'] });
-    });
-
+    socket.on('device_list_updated', () => queryClient.invalidateQueries({ queryKey: ['devices'] }));
     return () => { 
       socket.off('device_state_update'); 
       socket.off('device_list_updated');
     };
   }, [socket, queryClient]);
 
-  // 2. Inicjalizacja danych z bazy
   useEffect(() => {
     if (devices.length > 0) {
       const initialData: Record<string, any> = {};
-      devices.forEach(d => {
-        if (d.last_payload) initialData[d.friendly_name] = d.last_payload;
-      });
+      devices.forEach(d => { if (d.last_payload) initialData[d.friendly_name] = d.last_payload; });
       setLocalLiveData(prev => ({ ...initialData, ...prev }));
     }
   }, [devices]);
 
-  const handleToggle = async (friendlyName: string) => {
-    try {
-      await axios.post(`${API_URL}/devices/${friendlyName}/set`, {
-        state: 'TOGGLE'
+  useEffect(() => {
+    const id = setInterval(() => {
+      setLocalLiveData(prev => {
+        let hasChanges = false;
+        const next = { ...prev };
+        Object.keys(next).forEach(key => {
+          if (next[key]?.countdown > 0) {
+            next[key] = { ...next[key], countdown: Math.max(0, next[key].countdown - 1) };
+            hasChanges = true;
+          }
+        });
+        return hasChanges ? next : prev;
       });
+    }, 1000); 
+    
+    return () => clearInterval(id);
+  }, []);
+
+  const sendCommand = async (friendlyName: string, payload: any) => {
+    try {
+      await axios.post(`${API_URL}/devices/${friendlyName}/set`, payload);
     } catch (error) {
       toast.error(`Błąd sterowania: ${friendlyName}`);
     }
+  };
+
+  const sendCommandOptimistic = (friendlyName: string, payload: any) => {
+    setLocalLiveData(prev => {
+      const current = prev[friendlyName] || {};
+      return { ...prev, [friendlyName]: { ...current, ...payload } };
+    });
+
+    const key = `${friendlyName}_cmd`;
+    if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key]);
+
+    debounceRefs.current[key] = setTimeout(() => {
+      sendCommand(friendlyName, payload);
+    }, 250);
+  };
+
+  const handleToggle = (friendlyName: string) => {
+    const key = `${friendlyName}_cmd`;
+    if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key]);
+
+    setLocalLiveData(prev => {
+      const current = prev[friendlyName] || {};
+      const newState = current.state === "ON" ? "OFF" : "ON";
+      return { ...prev, [friendlyName]: { ...current, state: newState } };
+    });
+
+    sendCommand(friendlyName, { state: 'TOGGLE' });
   };
 
   const handleDelete = async (friendlyName: string) => {
@@ -1411,6 +1777,7 @@ const Devices = () => {
       await axios.delete(`${API_URL}/devices/${friendlyName}`);
       toast.success("Urządzenie zostało usunięte");
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      if (selectedDevice?.friendly_name === friendlyName) setSelectedDevice(null);
     } catch (error) {
       toast.error("Nie udało się usunąć urządzenia");
     }
@@ -1436,6 +1803,49 @@ const Devices = () => {
 
   const filteredDevices = activeRoom === "All" ? devices : [];
 
+  const selectedData = selectedDevice ? (localLiveData[selectedDevice.friendly_name] || {}) : {};
+  // NOWOŚĆ: Sprawdzenie stanu z payloadu i z klucza 'availability', jeśli Zigbee2MQTT go przysyła.
+  const isSelectedOffline = selectedData.state === 'OFFLINE' || selectedData.state === 'offline' || selectedData.availability === 'offline';
+  const isOn = selectedData.state === "ON" && !isSelectedOffline;
+  
+  const isSelectedPlug = selectedData.power !== undefined || selectedData.current !== undefined || selectedData.energy !== undefined || selectedData.consumption !== undefined;
+
+  let currentHexColor = "#FFFFFF";
+  let currentKelvin = 4000;
+  
+  if (!isSelectedPlug) {
+    if (selectedData.color_mode === "color_temp" || (selectedData.color_temp && !selectedData.color)) {
+      currentKelvin = Math.round(1000000 / selectedData.color_temp);
+      currentHexColor = kelvinToHex(currentKelvin);
+    } else if (selectedData.color && selectedData.color.h !== undefined) {
+      currentHexColor = hslToHex(selectedData.color.h, selectedData.color.s || 100, 50);
+    } else if (selectedDevice && wheelCache[selectedDevice.friendly_name]) {
+      const cached = wheelCache[selectedDevice.friendly_name];
+      currentHexColor = hslToHex(cached.h, cached.s, 50);
+    }
+  }
+
+  const currentBrightnessPct = Math.round(((selectedData.brightness || 0) / 254) * 100);
+
+  const wheelHue = selectedData.color?.h ?? (selectedDevice ? wheelCache[selectedDevice.friendly_name]?.h : 0) ?? 0;
+  const wheelSat = selectedData.color_mode === "color_temp" 
+    ? 0 
+    : (selectedData.color?.s ?? (selectedDevice ? wheelCache[selectedDevice.friendly_name]?.s : 100) ?? 100);
+
+  const currentEffect = selectedDevice ? (deviceEffects[selectedDevice.friendly_name] || "none") : "none";
+  
+  const selectedCountdownSec = selectedData.countdown || 0;
+  const selectedCountdownMins = Math.ceil(selectedCountdownSec / 60);
+
+  const formatRemaining = (sec: number) => {
+    if (sec <= 0) return "Disabled";
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+    return `${m}m ${String(s).padStart(2, "0")}s`;
+  };
+
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto">
       <div>
@@ -1443,14 +1853,13 @@ const Devices = () => {
         <p className="text-sm text-muted-foreground mt-1">Manage every connected device room by room.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_360px] gap-6">
-        {/* Rooms list */}
+      <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_400px] gap-6">
         <GlassCard className="p-3 h-fit">
           <ul className="space-y-1">
             {rooms.map((r) => (
               <li key={r.name}>
                 <button
-                  onClick={() => setActiveRoom(r.name)}
+                  onClick={() => { setActiveRoom(r.name); setSelectedDevice(null); }}
                   className={cn(
                     "w-full flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-medium transition-colors",
                     r.name === activeRoom
@@ -1469,7 +1878,6 @@ const Devices = () => {
           </ul>
         </GlassCard>
 
-        {/* Devices grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 content-start">
           {isLoading ? (
             <p className="col-span-2 text-center py-10 text-muted-foreground">Loading devices...</p>
@@ -1477,36 +1885,439 @@ const Devices = () => {
             <p className="col-span-2 text-center py-10 text-muted-foreground">No devices found.</p>
           ) : (
             filteredDevices.map((d) => {
-              const currentData = localLiveData[d.friendly_name] || {};
+              const dData = localLiveData[d.friendly_name] || {};
+              const isOffline = dData.state === 'OFFLINE' || dData.state === 'offline' || dData.availability === 'offline';
+              const dIsOn = dData.state === "ON" && !isOffline;
+              
+              const isPlug = dData.power !== undefined || dData.current !== undefined || dData.energy !== undefined || dData.consumption !== undefined;
+
+              let icon = Lightbulb;
+              let statusLabel = "Off";
+              let statusColor = undefined;
+              let iconColor = undefined;
+              let livePulse = false;
+
+              if (isPlug) {
+                icon = Plug;
+                iconColor = undefined; 
+                livePulse = dIsOn && (dData.power > 0);
+                
+                if (!dIsOn) {
+                  statusLabel = "Off";
+                  livePulse = false;
+                } else {
+                  const remainingSec = dData.countdown || 0;
+                  let parts = [`${Math.round(dData.power ?? 0)}W`];
+                  if (remainingSec > 0) {
+                    parts.push(`Auto-off: ${formatRemaining(remainingSec)}`);
+                  }
+                  statusLabel = parts.join(" · ");
+                }
+              } else {
+                icon = Lightbulb;
+                let dKelvin = undefined;
+                if (dData.color_mode === "color_temp" || (dData.color_temp && !dData.color)) {
+                  dKelvin = Math.round(1000000 / dData.color_temp);
+                  statusColor = kelvinToHex(dKelvin);
+                } else if (dData.color && dData.color.h !== undefined) {
+                  statusColor = hslToHex(dData.color.h, dData.color.s || 100, 50);
+                } else if (wheelCache[d.friendly_name]) {
+                  const cached = wheelCache[d.friendly_name];
+                  statusColor = hslToHex(cached.h, cached.s, 50);
+                } else if (dData.color_temp) {
+                  dKelvin = Math.round(1000000 / dData.color_temp);
+                  statusColor = kelvinToHex(dKelvin);
+                }
+                const brightnessPct = Math.round(((dData.brightness || 0) / 254) * 100);
+                statusLabel = lightStatusLabel(dIsOn, brightnessPct, dData.color_mode, dKelvin, statusColor);
+              }
+
               return (
                 <DeviceTile
                   key={d.id}
-                  icon={Lightbulb}
+                  icon={icon} 
                   name={d.friendly_name}
                   room={activeRoom}
-                  value={currentData.state || "OFF"}
-                  enabled={currentData.state === "ON"}
+                  livePulse={livePulse}
+                  statusLabel={statusLabel}
+                  statusColor={statusColor}
+                  iconColor={iconColor}
+                  enabled={dIsOn}
+                  offline={isOffline}
+                  selected={selectedDevice?.id === d.id}
+                  onClick={() => setSelectedDevice(d)} 
                   onToggle={() => handleToggle(d.friendly_name)}
-                  onDelete={() => setDeviceToDelete(d.friendly_name)}
-                  onRename={() => {
-                    setDeviceToRename(d.friendly_name);
-                    setNewName(d.friendly_name);
-                  }}
                 />
               );
             })
           )}
         </div>
 
-        {/* Detail panel */}
-        <GlassCard variant="strong" className="p-6 h-fit space-y-6">
-          <p className="text-sm text-muted-foreground text-center py-10">
-            Select a device to see details and advanced controls.
-          </p>
-        </GlassCard>
+        {selectedDevice ? (
+          <GlassCard variant="strong" className="p-6 h-fit space-y-6 overflow-hidden flex flex-col">
+            
+            <div className="flex items-start justify-between gap-3 relative z-20">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-3">
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">{activeRoom}</p>
+                  
+                  {/* ZMIANA: Etykieta połączenia z czerwoną plakietką Offline */}
+                  {isSelectedOffline ? (
+                    <div className="flex items-center gap-1 text-[10px] text-destructive font-bold bg-destructive/10 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                      <WifiOff className="h-3 w-3" />
+                      <span>Offline</span>
+                    </div>
+                  ) : selectedData.linkquality !== undefined ? (
+                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-medium bg-muted/40 px-1.5 py-0.5 rounded-md">
+                      <Signal className="h-3 w-3" />
+                      <span>{selectedData.linkquality} LQI</span>
+                    </div>
+                  ) : null}
+                </div>
+                <h3 className="font-display text-2xl font-semibold truncate mt-1.5">{selectedDevice.friendly_name}</h3>
+              </div>
+              <Switch
+                checked={isOn}
+                disabled={isSelectedOffline}
+                onCheckedChange={() => handleToggle(selectedDevice.friendly_name)}
+              />
+            </div>
+
+            {/* KONTENER Z CONTROLSAMI - Z OVERLAYEM OFFLINE */}
+            <div className="relative space-y-6 pb-2 border-b border-border/50">
+              {isSelectedOffline && (
+                <div className="absolute inset-[-16px] z-50 bg-background/50 backdrop-blur-[2px] flex items-center justify-center rounded-xl">
+                  <div className="bg-background/90 border border-white/10 px-5 py-3 rounded-2xl flex items-center gap-3 text-sm font-medium shadow-2xl text-foreground">
+                    <WifiOff className="h-5 w-5 text-destructive" />
+                    Brak odpowiedzi z urządzenia
+                  </div>
+                </div>
+              )}
+
+              {isSelectedPlug ? (
+                // PANEL SMART PLUG
+                <>
+                  <div
+                    className={cn(
+                      "rounded-2xl p-6 flex items-center justify-between transition-colors",
+                      isOn ? "bg-blue-500/10" : "bg-muted/40",
+                    )}
+                  >
+                    <div>
+                      <p className="text-xs uppercase tracking-wider text-muted-foreground">Power draw</p>
+                      <p className="mt-1 font-display text-4xl font-semibold">
+                        {isOn ? Math.round(selectedData.power ?? 0) : 0}
+                        <span className="ml-1 text-base font-medium text-muted-foreground">W</span>
+                      </p>
+                    </div>
+                    <div
+                      className={cn(
+                        "h-14 w-14 rounded-2xl flex items-center justify-center transition-colors",
+                        isOn ? "bg-blue-500 text-white" : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      <Plug className="h-6 w-6" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: "Current", value: selectedData.current ?? 0, unit: "A", icon: Activity },
+                      { label: "Voltage", value: selectedData.voltage ?? 0, unit: "V", icon: Zap },
+                      { label: "Energy", value: Number(selectedData.energy ?? selectedData.consumption ?? selectedData.total_energy ?? 0).toFixed(2), unit: "kWh", icon: BatteryCharging },
+                    ].map((m) => (
+                      <div key={m.label} className="rounded-2xl bg-background/50 border border-border/40 p-3 flex flex-col justify-center">
+                        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap overflow-hidden">
+                          <m.icon className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{m.label}</span>
+                        </div>
+                        <p className="mt-1 font-display text-lg font-semibold truncate">
+                          {m.value}
+                          {m.unit && <span className="ml-1 text-[10px] font-medium text-muted-foreground">{m.unit}</span>}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-medium inline-flex items-center gap-1.5">
+                        <Timer className="h-4 w-4" /> Auto-off timer
+                      </span>
+                      {selectedCountdownMins > 0 && (
+                        <button
+                          onClick={() => sendCommandOptimistic(selectedDevice.friendly_name, { countdown: 0 })}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition relative z-20"
+                        >
+                          <RotateCcw className="h-3 w-3" /> Reset
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-5 gap-2 mb-3">
+                      {[0, 15, 30, 60, 120].map((m) => {
+                        const active = selectedCountdownMins === m;
+                        return (
+                          <button
+                            key={m}
+                            onClick={() => sendCommandOptimistic(selectedDevice.friendly_name, { countdown: m * 60 })}
+                            className={cn(
+                              "rounded-full py-2 text-xs font-semibold transition border",
+                              active
+                                ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                                : "bg-background/60 border-border/40 text-foreground/80 hover:bg-background hover:text-foreground",
+                            )}
+                          >
+                            {m === 0 ? "Off" : m < 60 ? `${m}m` : `${m / 60}h`}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="rounded-2xl bg-background/50 border border-border/40 px-4 py-4 flex items-center justify-between gap-4">
+                      <button
+                        onClick={() => sendCommandOptimistic(selectedDevice.friendly_name, { countdown: Math.max(0, (selectedCountdownMins - 5) * 60) })}
+                        disabled={selectedCountdownMins <= 0}
+                        className="h-10 w-10 shrink-0 rounded-full bg-background/80 border border-border/50 flex items-center justify-center text-foreground hover:bg-primary hover:text-primary-foreground hover:border-transparent transition disabled:opacity-30 disabled:hover:bg-background/80 disabled:hover:text-foreground disabled:hover:border-border/50"
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
+
+                      <div className="text-center leading-none flex-1 min-w-0">
+                        <p className="font-display text-3xl font-semibold tabular-nums truncate">
+                          {(() => {
+                            if (selectedCountdownMins === 0) return "Off";
+                            const h = Math.floor(selectedCountdownMins / 60);
+                            const mm = selectedCountdownMins % 60;
+                            if (h === 0) return `${mm}`;
+                            if (mm === 0) return `${h}h`;
+                            return `${h}h ${mm}`;
+                          })()}
+                          {selectedCountdownMins > 0 && (
+                            <span className="ml-1 text-sm font-medium text-muted-foreground">
+                              {selectedCountdownMins < 60 || selectedCountdownMins % 60 !== 0 ? "min" : ""}
+                            </span>
+                          )}
+                        </p>
+                        <p className="mt-1.5 text-[10px] uppercase tracking-wider text-muted-foreground truncate">
+                          {selectedCountdownMins === 0
+                            ? "Timer disabled"
+                            : (![0, 15, 30, 60, 120].includes(selectedCountdownMins))
+                            ? "Custom · ±5 min"
+                            : "Tap ± to fine-tune"}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => sendCommandOptimistic(selectedDevice.friendly_name, { countdown: Math.min(180, (selectedCountdownMins + 5)) * 60 })}
+                        disabled={selectedCountdownMins >= 180}
+                        className="h-10 w-10 shrink-0 rounded-full bg-background/80 border border-border/50 flex items-center justify-center text-foreground hover:bg-primary hover:text-primary-foreground hover:border-transparent transition disabled:opacity-30 disabled:hover:bg-background/80 disabled:hover:text-foreground disabled:hover:border-border/50"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-2xl bg-background/50 border border-border/40 px-4 py-3 relative z-20">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={cn(
+                          "h-9 w-9 rounded-xl flex items-center justify-center transition-colors shrink-0",
+                          selectedData.child_lock === "LOCK" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {selectedData.child_lock === "LOCK" ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Child lock</p>
+                        <p className="text-xs text-muted-foreground line-clamp-1">
+                          {selectedData.child_lock === "LOCK" ? "Physical button is disabled" : "Anyone can toggle"}
+                        </p>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={selectedData.child_lock === "LOCK"}
+                      onCheckedChange={(v) => sendCommand(selectedDevice.friendly_name, { child_lock: v ? "LOCK" : "UNLOCK" })}
+                    />
+                  </div>
+                </>
+              ) : (
+                // PANEL OŚWIETLENIA
+                <>
+                  <div
+                    className="rounded-2xl p-8 flex items-center justify-center transition-colors duration-500"
+                    style={{
+                      background: isOn
+                        ? `radial-gradient(circle at 50% 50%, ${currentHexColor}55, ${currentHexColor}10 70%)`
+                        : "hsl(var(--muted) / 0.4)",
+                    }}
+                  >
+                    <Lightbulb
+                      className="h-20 w-20 transition-colors duration-500"
+                      strokeWidth={1.2}
+                      style={{ color: isOn ? currentHexColor : "hsl(var(--muted-foreground))" }}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-medium inline-flex items-center gap-1.5">
+                        <Palette className="h-4 w-4" /> Color
+                      </span>
+                      <span className="font-display text-lg font-semibold uppercase">{currentHexColor}</span>
+                    </div>
+                    <ColorWheel
+                      hue={wheelHue}
+                      saturation={wheelSat}
+                      onChange={(h, s) => {
+                        setDeviceEffects(prev => ({ ...prev, [selectedDevice.friendly_name]: "none" }));
+                        setWheelCache(prev => ({ ...prev, [selectedDevice.friendly_name]: { h, s } }));
+                        sendCommandOptimistic(selectedDevice.friendly_name, { color: { h, s }, color_mode: "hs" });
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium inline-flex items-center gap-1.5">
+                        <Thermometer className="h-4 w-4" /> Temperature
+                      </span>
+                      <span className="font-display text-lg font-semibold">{currentKelvin}K</span>
+                    </div>
+                    <Slider
+                      value={[currentKelvin]}
+                      min={2000}
+                      max={6000}
+                      step={100}
+                      className="[&_[role=slider]]:border-foreground/30 relative z-20"
+                      onValueChange={(v) => {
+                        setDeviceEffects(prev => ({ ...prev, [selectedDevice.friendly_name]: "none" }));
+                        const mireds = Math.round(1000000 / v[0]);
+                        sendCommandOptimistic(selectedDevice.friendly_name, { color_temp: mireds, color_mode: "color_temp" });
+                      }}
+                    />
+                    <div
+                      className="mt-2 h-2 rounded-full"
+                      style={{
+                        background:
+                          "linear-gradient(to right, #FF8B3D 0%, #FFB870 25%, #FFE4B5 50%, #FFFFFF 75%, #CFE2FF 100%)",
+                      }}
+                    />
+                    <div className="mt-1 flex justify-between text-[10px] uppercase tracking-wider text-muted-foreground">
+                      <span>Warm</span><span>Neutral</span><span>Cold</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium inline-flex items-center gap-1.5">
+                        <Sun className="h-4 w-4" /> Brightness
+                      </span>
+                      <span className="font-display text-lg font-semibold">{currentBrightnessPct}%</span>
+                    </div>
+                    <Slider
+                      value={[selectedData.brightness || 0]}
+                      max={254}
+                      step={1}
+                      className="relative z-20"
+                      onValueChange={(v) => sendCommandOptimistic(selectedDevice.friendly_name, { brightness: v[0] })}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium inline-flex items-center gap-1.5">
+                        <Sparkles className="h-4 w-4" /> Effect
+                      </span>
+                    </div>
+                    <Select 
+                      value={currentEffect} 
+                      onValueChange={(v) => {
+                        const friendlyName = selectedDevice.friendly_name;
+                        
+                        if (v !== "none") {
+                          if (currentEffect === "none") {
+                            const currentDeviceData = localLiveData[friendlyName] || {};
+                            setPreEffectState(prev => ({
+                              ...prev,
+                              [friendlyName]: {
+                                color: currentDeviceData.color,
+                                color_temp: currentDeviceData.color_temp,
+                                color_mode: currentDeviceData.color_mode,
+                                brightness: currentDeviceData.brightness
+                              }
+                            }));
+                          }
+                          
+                          setDeviceEffects(prev => ({ ...prev, [friendlyName]: v }));
+                          sendCommand(friendlyName, { effect: v });
+                        } else {
+                          setDeviceEffects(prev => ({ ...prev, [friendlyName]: "none" }));
+                          
+                          const savedState = preEffectState[friendlyName];
+                          const payload: any = { effect: "finish_effect" };
+                          
+                          if (savedState) {
+                            if (savedState.color_mode === 'color_temp' && savedState.color_temp) {
+                              payload.color_temp = savedState.color_temp;
+                              payload.color_mode = 'color_temp';
+                            } else if (savedState.color) {
+                              payload.color = savedState.color;
+                              payload.color_mode = savedState.color_mode || 'hs';
+                            }
+                            if (savedState.brightness) {
+                              payload.brightness = savedState.brightness;
+                            }
+                          }
+                          
+                          sendCommandOptimistic(friendlyName, payload);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-background/50 rounded-xl border-border/50 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:outline-none outline-none ring-0 relative z-20">
+                        <SelectValue placeholder="Select an effect..." />
+                      </SelectTrigger>
+                      <SelectContent className="glass rounded-xl border-border/50 p-1 shadow-xl">
+                        {Object.entries(effectNames).map(([value, label]) => (
+                          <SelectItem 
+                            key={value} 
+                            value={value}
+                            className="rounded-md focus:bg-primary/10 focus:text-foreground transition-colors cursor-pointer py-2.5"
+                          >
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* AKCJE - Pozostawione poza overlayem, aby można było usunąć wyłączone urządzenie z bazy */}
+            <div className="pt-2 flex items-center gap-2 relative z-20">
+              <button
+                onClick={() => { setDeviceToRename(selectedDevice.friendly_name); setNewName(selectedDevice.friendly_name); }}
+                className="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-background/60 hover:bg-background py-2.5 text-sm font-medium transition active:scale-95"
+              >
+                <Pencil className="h-4 w-4" /> Rename
+              </button>
+              <button
+                onClick={() => setDeviceToDelete(selectedDevice.friendly_name)}
+                className="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-destructive/10 text-destructive hover:bg-destructive/20 py-2.5 text-sm font-medium transition active:scale-95"
+              >
+                <Trash2 className="h-4 w-4" /> Delete
+              </button>
+            </div>
+            
+          </GlassCard>
+        ) : (
+          <GlassCard className="p-6 h-fit text-center text-sm text-muted-foreground">
+            Select a device to see its controls.
+          </GlassCard>
+        )}
       </div>
 
-      {/* AlertDialog (Usuwanie) */}
       <AlertDialog open={!!deviceToDelete} onOpenChange={() => setDeviceToDelete(null)}>
         <AlertDialogContent className="glass border-white/20 rounded-[28px] max-w-md">
           <AlertDialogHeader>
@@ -1533,7 +2344,6 @@ const Devices = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Dialog (Zmiana nazwy) */}
       <Dialog open={!!deviceToRename} onOpenChange={(open) => { if (!open) setDeviceToRename(null) }}>
         <DialogContent className="glass border-white/20 rounded-[28px] max-w-sm">
           <DialogHeader>
@@ -1575,196 +2385,24 @@ const Devices = () => {
 };
 
 export default Devices;
---- FILE: apps/web/src/App.old.css ---
-.counter {
-  font-size: 16px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  color: var(--accent);
-  background: var(--accent-bg);
-  border: 2px solid transparent;
-  transition: border-color 0.3s;
-  margin-bottom: 24px;
 
-  &:hover {
-    border-color: var(--accent-border);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-}
-
-.hero {
-  position: relative;
-
-  .base,
-  .framework,
-  .vite {
-    inset-inline: 0;
-    margin: 0 auto;
-  }
-
-  .base {
-    width: 170px;
-    position: relative;
-    z-index: 0;
-  }
-
-  .framework,
-  .vite {
-    position: absolute;
-  }
-
-  .framework {
-    z-index: 1;
-    top: 34px;
-    height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
-      scale(1.4);
-  }
-
-  .vite {
-    z-index: 0;
-    top: 107px;
-    height: 26px;
-    width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
-      scale(0.8);
-  }
-}
-
-#center {
-  display: flex;
-  flex-direction: column;
-  gap: 25px;
-  place-content: center;
-  place-items: center;
-  flex-grow: 1;
-
-  @media (max-width: 1024px) {
-    padding: 32px 20px 24px;
-    gap: 18px;
-  }
-}
-
-#next-steps {
-  display: flex;
-  border-top: 1px solid var(--border);
-  text-align: left;
-
-  & > div {
-    flex: 1 1 0;
-    padding: 32px;
-    @media (max-width: 1024px) {
-      padding: 24px 20px;
-    }
-  }
-
-  .icon {
-    margin-bottom: 16px;
-    width: 22px;
-    height: 22px;
-  }
-
-  @media (max-width: 1024px) {
-    flex-direction: column;
-    text-align: center;
-  }
-}
-
-#docs {
-  border-right: 1px solid var(--border);
-
-  @media (max-width: 1024px) {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-}
-
-#next-steps ul {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  gap: 8px;
-  margin: 32px 0 0;
-
-  .logo {
-    height: 18px;
-  }
-
-  a {
-    color: var(--text-h);
-    font-size: 16px;
-    border-radius: 6px;
-    background: var(--social-bg);
-    display: flex;
-    padding: 6px 12px;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    transition: box-shadow 0.3s;
-
-    &:hover {
-      box-shadow: var(--shadow);
-    }
-    .button-icon {
-      height: 18px;
-      width: 18px;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    margin-top: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-
-    li {
-      flex: 1 1 calc(50% - 8px);
-    }
-
-    a {
-      width: 100%;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-  }
-}
-
-#spacer {
-  height: 88px;
-  border-top: 1px solid var(--border);
-  @media (max-width: 1024px) {
-    height: 48px;
-  }
-}
-
-.ticks {
-  position: relative;
-  width: 100%;
-
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    top: -4.5px;
-    border: 5px solid transparent;
-  }
-
-  &::before {
-    left: 0;
-    border-left-color: var(--border);
-  }
-  &::after {
-    right: 0;
-    border-right-color: var(--border);
-  }
-}
-
---- FILE: apps/web/src/vite-env.d.ts ---
+=========================================
+FILE: apps/web/src/vite-env.d.ts
+=========================================
 /// <reference types="vite/client" />
 
---- FILE: apps/web/src/components/NavLink.tsx ---
+interface ImportMetaEnv {
+    readonly VITE_API_URL: string;
+    readonly VITE_WS_URL: string;
+}
+
+interface ImportMeta {
+    readonly env: ImportMetaEnv;
+}
+
+=========================================
+FILE: apps/web/src/components/NavLink.tsx
+=========================================
 import { NavLink as RouterNavLink, NavLinkProps } from "react-router-dom";
 import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
@@ -1794,7 +2432,10 @@ NavLink.displayName = "NavLink";
 
 export { NavLink };
 
---- FILE: apps/web/src/components/livora/MetricBadge.tsx ---
+
+=========================================
+FILE: apps/web/src/components/livora/MetricBadge.tsx
+=========================================
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -1824,7 +2465,10 @@ export function MetricBadge({ value, className, inverted = false }: MetricBadgeP
   );
 }
 
---- FILE: apps/web/src/components/livora/RoomFilter.tsx ---
+
+=========================================
+FILE: apps/web/src/components/livora/RoomFilter.tsx
+=========================================
 import { cn } from "@/lib/utils";
 
 interface RoomFilterProps {
@@ -1858,8 +2502,11 @@ export function RoomFilter({ rooms, active, onChange, className }: RoomFilterPro
   );
 }
 
---- FILE: apps/web/src/components/livora/DeviceTile.tsx ---
-import { LucideIcon, Trash2, Pencil } from "lucide-react";
+
+=========================================
+FILE: apps/web/src/components/livora/DeviceTile.tsx
+=========================================
+import { LucideIcon } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { GlassCard } from "./GlassCard";
 import { cn } from "@/lib/utils";
@@ -1868,35 +2515,34 @@ interface DeviceTileProps {
   icon: LucideIcon;
   name: string;
   room: string;
+  statusLabel?: string;
+  statusColor?: string;
   value?: string;
   unit?: string;
+  livePulse?: boolean;
   enabled: boolean;
+  offline?: boolean; // NOWOŚĆ: Tryb offline
   onToggle?: (v: boolean) => void;
-  onDelete?: () => void;
-  onRename?: () => void; // <--- Nowy prop
+  onClick?: () => void;
   accent?: boolean;
+  selected?: boolean;
+  iconColor?: string;
   className?: string;
 }
 
 export function DeviceTile({
-  icon: Icon,
-  name,
-  room,
-  value,
-  unit,
-  enabled,
-  onToggle,
-  onDelete,
-  onRename,
-  accent,
-  className,
+  icon: Icon, name, room, statusLabel, statusColor, value, unit, livePulse, enabled, offline,
+  onToggle, onClick, accent, selected, iconColor, className,
 }: DeviceTileProps) {
   return (
     <GlassCard
-      hover
+      onClick={onClick}
       className={cn(
-        "p-5 flex flex-col gap-4 min-h-[180px] relative",
-        accent && enabled && "ring-1 ring-accent/40",
+        "p-5 flex flex-col gap-4 min-h-[180px] transition-all duration-300",
+        onClick && "cursor-pointer",
+        accent && enabled && !offline && "ring-1 ring-accent/40",
+        selected && "ring-2 ring-primary/60 shadow-lg shadow-primary/10",
+        offline && "opacity-60", // Przyciemnienie wyłączonego urządzenia
         className,
       )}
     >
@@ -1904,58 +2550,153 @@ export function DeviceTile({
         <div
           className={cn(
             "flex h-11 w-11 items-center justify-center rounded-2xl transition-colors",
-            enabled ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+            offline ? "bg-muted text-muted-foreground/50" : // Szary styl dla offline
+            enabled
+              ? iconColor ? "text-primary-foreground" : "bg-primary text-primary-foreground"
+              : "bg-muted text-muted-foreground",
           )}
+          style={enabled && iconColor && !offline ? { backgroundColor: iconColor } : undefined}
         >
           <Icon className="h-5 w-5" />
         </div>
-        <Switch checked={enabled} onCheckedChange={onToggle} />
+        <div onClick={(e) => { e.stopPropagation(); if (offline) e.preventDefault(); }}>
+          <Switch checked={enabled && !offline} disabled={offline} onCheckedChange={onToggle} />
+        </div>
       </div>
 
-      <div className="mt-auto relative">
+      <div className="mt-auto">
         <p className="text-xs uppercase tracking-wider text-muted-foreground">{room}</p>
+        <h3 className="mt-1 text-base font-semibold text-foreground truncate">{name}</h3>
         
-        {/* Kontener nazwy + przycisk edycji */}
-        <div className="flex items-center gap-2 mt-1">
-          <h3 className="text-base font-semibold text-foreground truncate max-w-[85%]">{name}</h3>
-          {onRename && (
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onRename();
-              }}
-              className="text-muted-foreground opacity-40 hover:opacity-100 hover:text-foreground transition-all"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        {value && (
+        {value !== undefined && !offline && (
           <p className="mt-2 font-display text-2xl font-semibold text-foreground">
             {value}
             {unit && <span className="ml-1 text-sm font-medium text-muted-foreground">{unit}</span>}
           </p>
         )}
 
-        {onDelete && (
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="absolute right-0 bottom-0 p-2 text-muted-foreground hover:text-destructive transition-colors"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        )}
+        <div className={cn("inline-flex items-center gap-2 text-sm text-muted-foreground", value !== undefined && !offline ? "mt-1" : "mt-2")}>
+          {offline ? (
+            <>
+              <span className="h-2.5 w-2.5 rounded-full bg-destructive/60" />
+              <span className="font-medium text-destructive/80">Offline</span>
+            </>
+          ) : (
+            <>
+              {livePulse ? (
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-60 animate-ping" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-500" />
+                </span>
+              ) : (
+                statusColor && enabled && (
+                  <span
+                    className="h-2.5 w-2.5 rounded-full ring-1 ring-border/60"
+                    style={{ backgroundColor: statusColor }}
+                  />
+                )
+              )}
+              <span className={cn("font-medium", value !== undefined ? "text-muted-foreground" : "text-foreground/80")}>
+                {statusLabel}
+              </span>
+            </>
+          )}
+        </div>
       </div>
     </GlassCard>
   );
 }
---- FILE: apps/web/src/components/livora/GlassCard.tsx ---
+
+=========================================
+FILE: apps/web/src/components/livora/ColorWheel.tsx
+=========================================
+import { useCallback, useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
+
+interface ColorWheelProps {
+  hue: number;        // 0..360
+  saturation: number; // 0..100
+  onChange: (hue: number, saturation: number) => void;
+  className?: string;
+}
+
+export function ColorWheel({ hue, saturation, onChange, className }: ColorWheelProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const handleFromEvent = useCallback(
+    (clientX: number, clientY: number) => {
+      const el = ref.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const dx = clientX - cx;
+      const dy = clientY - cy;
+      const radius = rect.width / 2;
+      const dist = Math.min(Math.sqrt(dx * dx + dy * dy), radius);
+      const sat = Math.round((dist / radius) * 100);
+      let angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+      if (angle < 0) angle += 360;
+      onChange(Math.round(angle), sat);
+    },
+    [onChange],
+  );
+
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (e: PointerEvent) => handleFromEvent(e.clientX, e.clientY);
+    const up = () => setDragging(false);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+  }, [dragging, handleFromEvent]);
+
+  const angleRad = (hue * Math.PI) / 180;
+  const r = saturation / 100;
+  const thumbX = 50 + Math.cos(angleRad) * r * 50;
+  const thumbY = 50 + Math.sin(angleRad) * r * 50;
+
+  return (
+    <div
+      ref={ref}
+      className={cn(
+        "relative aspect-square w-full max-w-[260px] mx-auto rounded-full cursor-crosshair touch-none select-none",
+        className,
+      )}
+      style={{
+        background:
+          "conic-gradient(from 0deg, hsl(0 100% 50%), hsl(60 100% 50%), hsl(120 100% 50%), hsl(180 100% 50%), hsl(240 100% 50%), hsl(300 100% 50%), hsl(360 100% 50%))",
+        boxShadow: "inset 0 0 0 1px hsl(var(--border) / 0.4), 0 8px 24px -12px hsl(var(--foreground) / 0.25)",
+      }}
+      onPointerDown={(e) => {
+        (e.target as Element).setPointerCapture?.(e.pointerId);
+        setDragging(true);
+        handleFromEvent(e.clientX, e.clientY);
+      }}
+    >
+      <div
+        className="absolute inset-0 rounded-full pointer-events-none"
+        style={{ background: "radial-gradient(circle at center, hsl(0 0% 100%) 0%, hsl(0 0% 100% / 0) 100%)" }}
+      />
+      <div
+        className="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-md pointer-events-none"
+        style={{
+          left: `${thumbX}%`,
+          top: `${thumbY}%`,
+          background: `hsl(${hue} 100% ${100 - saturation / 2}%)`,
+        }}
+      />
+    </div>
+  );
+}
+
+=========================================
+FILE: apps/web/src/components/livora/GlassCard.tsx
+=========================================
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
@@ -1984,7 +2725,10 @@ export const GlassCard = React.forwardRef<HTMLDivElement, GlassCardProps>(
 );
 GlassCard.displayName = "GlassCard";
 
---- FILE: apps/web/src/components/livora/ScenePill.tsx ---
+
+=========================================
+FILE: apps/web/src/components/livora/ScenePill.tsx
+=========================================
 import { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -2014,7 +2758,10 @@ export function ScenePill({ icon: Icon, label, active, onClick, className }: Sce
   );
 }
 
---- FILE: apps/web/src/components/livora/AppSidebar.tsx ---
+
+=========================================
+FILE: apps/web/src/components/livora/AppSidebar.tsx
+=========================================
 import { LayoutDashboard, Lightbulb, BarChart3, Sparkles, Settings, Home } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -2099,7 +2846,7 @@ export function AppSidebar() {
         {!collapsed && (
           <div className="mt-2 flex items-center gap-3 rounded-2xl glass p-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/40 font-display text-sm font-semibold">
-              L
+              P
             </div>
             <div className="flex-1 leading-tight">
               <p className="text-sm font-semibold text-foreground">Patryk</p>
@@ -2112,7 +2859,10 @@ export function AppSidebar() {
   );
 }
 
---- FILE: apps/web/src/components/livora/AppLayout.tsx ---
+
+=========================================
+FILE: apps/web/src/components/livora/AppLayout.tsx
+=========================================
 import { Outlet } from "react-router-dom";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
@@ -2135,8 +2885,11 @@ export function AppLayout() {
   );
 }
 
---- FILE: apps/web/src/components/livora/Topbar.tsx ---
-import { Bell, Plus, Loader2, Radio } from "lucide-react";
+
+=========================================
+FILE: apps/web/src/components/livora/Topbar.tsx
+=========================================
+import { Bell, Plus, Radio } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Switch } from "@/components/ui/switch";
 import { useState, useEffect } from "react";
@@ -2144,14 +2897,13 @@ import axios from "axios";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const API_URL = 'http://192.168.0.66:3000/api';
+const API_URL = import.meta.env.VITE_API_URL;
 
 export function Topbar() {
   const [home, setHome] = useState(true);
   const [isPairing, setIsPairing] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
 
-  // Odliczanie czasu parowania
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (isPairing && timeLeft > 0) {
@@ -2169,17 +2921,19 @@ export function Topbar() {
       setIsPairing(newState);
       
       if (newState) {
-        setTimeLeft(180); // 3 minuty
-        toast.info("Tryb parowania aktywowany", {
-          description: "Twoja sieć Zigbee jest teraz otwarta dla nowych urządzeń.",
+        setTimeLeft(180);
+        toast.info("Pairing mode activated", {
+          description: "Your Zigbee network is now open for new devices.",
           duration: 5000,
         });
       } else {
         setTimeLeft(0);
-        toast.success("Tryb parowania wyłączony");
+        toast.info("Pairing mode deactivated", {
+          description: "Your network is closed."
+        });
       }
     } catch (error) {
-      toast.error("Błąd sieci", { description: "Nie udało się zmienić trybu parowania." });
+      toast.error("Network error", { description: "Failed to change pairing mode." });
     }
   };
 
@@ -2196,16 +2950,16 @@ export function Topbar() {
       <div className="hidden md:block flex-1">
         <h2 className="font-display text-lg font-semibold leading-tight">Hi, Patryk</h2>
         <p className="text-xs text-muted-foreground">
-          {isPairing ? `Pairing active: ${formatTime(timeLeft)}` : "Welcome home — everything is calm."}
+          {isPairing ? `Pairing active: ${formatTime(timeLeft)}` : "Welcome home."}
         </p>
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        {/* PRZYCISK PAROWANIA ZAMIAST SEARCH */}
+        {/* ZMIANA: justify-start zamiast justify-center, stały margines px-4 i minimalnie szerszy button */}
         <button
           onClick={togglePairing}
           className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-full transition-all duration-500",
+            "flex items-center justify-start px-4 gap-2 py-2 rounded-full transition-all duration-500 w-[165px]",
             isPairing 
               ? "bg-orange-500 text-white animate-pulse shadow-[0_0_15px_rgba(249,115,22,0.5)]" 
               : "glass hover:bg-muted/50 text-foreground"
@@ -2213,12 +2967,12 @@ export function Topbar() {
         >
           {isPairing ? (
             <>
-              <Radio className="h-4 w-4 animate-bounce" />
-              <span className="text-sm font-medium">Connecting... ({formatTime(timeLeft)})</span>
+              <Radio className="h-4 w-4 shrink-0" />
+              <span className="text-sm font-medium tabular-nums">Pairing... ({formatTime(timeLeft)})</span>
             </>
           ) : (
             <>
-              <Plus className="h-4 w-4" />
+              <Plus className="h-4 w-4 shrink-0" />
               <span className="text-sm font-medium text-muted-foreground">Connect Device</span>
             </>
           )}
@@ -2238,7 +2992,10 @@ export function Topbar() {
     </header>
   );
 }
---- FILE: apps/web/src/components/ui/collapsible.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/collapsible.tsx
+=========================================
 import * as CollapsiblePrimitive from "@radix-ui/react-collapsible";
 
 const Collapsible = CollapsiblePrimitive.Root;
@@ -2249,7 +3006,10 @@ const CollapsibleContent = CollapsiblePrimitive.CollapsibleContent;
 
 export { Collapsible, CollapsibleTrigger, CollapsibleContent };
 
---- FILE: apps/web/src/components/ui/alert.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/alert.tsx
+=========================================
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
@@ -2294,7 +3054,10 @@ AlertDescription.displayName = "AlertDescription";
 
 export { Alert, AlertTitle, AlertDescription };
 
---- FILE: apps/web/src/components/ui/switch.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/switch.tsx
+=========================================
 import * as React from "react";
 import * as SwitchPrimitives from "@radix-ui/react-switch";
 
@@ -2323,7 +3086,10 @@ Switch.displayName = SwitchPrimitives.Root.displayName;
 
 export { Switch };
 
---- FILE: apps/web/src/components/ui/toast.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/toast.tsx
+=========================================
 import * as React from "react";
 import * as ToastPrimitives from "@radix-ui/react-toast";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -2436,7 +3202,10 @@ export {
   ToastAction,
 };
 
---- FILE: apps/web/src/components/ui/command.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/command.tsx
+=========================================
 import * as React from "react";
 import { type DialogProps } from "@radix-ui/react-dialog";
 import { Command as CommandPrimitive } from "cmdk";
@@ -2570,7 +3339,10 @@ export {
   CommandSeparator,
 };
 
---- FILE: apps/web/src/components/ui/pagination.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/pagination.tsx
+=========================================
 import * as React from "react";
 import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 
@@ -2653,7 +3425,10 @@ export {
   PaginationPrevious,
 };
 
---- FILE: apps/web/src/components/ui/popover.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/popover.tsx
+=========================================
 import * as React from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 
@@ -2684,7 +3459,10 @@ PopoverContent.displayName = PopoverPrimitive.Content.displayName;
 
 export { Popover, PopoverTrigger, PopoverContent };
 
---- FILE: apps/web/src/components/ui/form.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/form.tsx
+=========================================
 import * as React from "react";
 import * as LabelPrimitive from "@radix-ui/react-label";
 import { Slot } from "@radix-ui/react-slot";
@@ -2815,7 +3593,10 @@ FormMessage.displayName = "FormMessage";
 
 export { useFormField, Form, FormItem, FormLabel, FormControl, FormDescription, FormMessage, FormField };
 
---- FILE: apps/web/src/components/ui/carousel.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/carousel.tsx
+=========================================
 import * as React from "react";
 import useEmblaCarousel, { type UseEmblaCarouselType } from "embla-carousel-react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
@@ -3041,7 +3822,10 @@ CarouselNext.displayName = "CarouselNext";
 
 export { type CarouselApi, Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext };
 
---- FILE: apps/web/src/components/ui/button.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/button.tsx
+=========================================
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -3090,7 +3874,10 @@ Button.displayName = "Button";
 
 export { Button, buttonVariants };
 
---- FILE: apps/web/src/components/ui/dialog.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/dialog.tsx
+=========================================
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
@@ -3187,7 +3974,10 @@ export {
   DialogDescription,
 };
 
---- FILE: apps/web/src/components/ui/card.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/card.tsx
+=========================================
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -3232,7 +4022,10 @@ CardFooter.displayName = "CardFooter";
 
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent };
 
---- FILE: apps/web/src/components/ui/menubar.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/menubar.tsx
+=========================================
 import * as React from "react";
 import * as MenubarPrimitive from "@radix-ui/react-menubar";
 import { Check, ChevronRight, Circle } from "lucide-react";
@@ -3441,7 +4234,10 @@ export {
   MenubarShortcut,
 };
 
---- FILE: apps/web/src/components/ui/radio-group.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/radio-group.tsx
+=========================================
 import * as React from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { Circle } from "lucide-react";
@@ -3479,7 +4275,10 @@ RadioGroupItem.displayName = RadioGroupPrimitive.Item.displayName;
 
 export { RadioGroup, RadioGroupItem };
 
---- FILE: apps/web/src/components/ui/progress.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/progress.tsx
+=========================================
 import * as React from "react";
 import * as ProgressPrimitive from "@radix-ui/react-progress";
 
@@ -3504,7 +4303,10 @@ Progress.displayName = ProgressPrimitive.Root.displayName;
 
 export { Progress };
 
---- FILE: apps/web/src/components/ui/chart.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/chart.tsx
+=========================================
 import * as React from "react";
 import * as RechartsPrimitive from "recharts";
 
@@ -3809,7 +4611,10 @@ function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key:
 
 export { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, ChartStyle };
 
---- FILE: apps/web/src/components/ui/avatar.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/avatar.tsx
+=========================================
 import * as React from "react";
 import * as AvatarPrimitive from "@radix-ui/react-avatar";
 
@@ -3849,7 +4654,10 @@ AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName;
 
 export { Avatar, AvatarImage, AvatarFallback };
 
---- FILE: apps/web/src/components/ui/label.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/label.tsx
+=========================================
 import * as React from "react";
 import * as LabelPrimitive from "@radix-ui/react-label";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -3868,7 +4676,10 @@ Label.displayName = LabelPrimitive.Root.displayName;
 
 export { Label };
 
---- FILE: apps/web/src/components/ui/drawer.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/drawer.tsx
+=========================================
 import * as React from "react";
 import { Drawer as DrawerPrimitive } from "vaul";
 
@@ -3957,7 +4768,10 @@ export {
   DrawerDescription,
 };
 
---- FILE: apps/web/src/components/ui/accordion.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/accordion.tsx
+=========================================
 import * as React from "react";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import { ChevronDown } from "lucide-react";
@@ -4011,12 +4825,18 @@ AccordionContent.displayName = AccordionPrimitive.Content.displayName;
 
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent };
 
---- FILE: apps/web/src/components/ui/use-toast.ts ---
+
+=========================================
+FILE: apps/web/src/components/ui/use-toast.ts
+=========================================
 import { useToast, toast } from "@/hooks/use-toast";
 
 export { useToast, toast };
 
---- FILE: apps/web/src/components/ui/input-otp.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/input-otp.tsx
+=========================================
 import * as React from "react";
 import { OTPInput, OTPInputContext } from "input-otp";
 import { Dot } from "lucide-react";
@@ -4079,7 +4899,10 @@ InputOTPSeparator.displayName = "InputOTPSeparator";
 
 export { InputOTP, InputOTPGroup, InputOTPSlot, InputOTPSeparator };
 
---- FILE: apps/web/src/components/ui/alert-dialog.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/alert-dialog.tsx
+=========================================
 import * as React from "react";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 
@@ -4185,7 +5008,10 @@ export {
   AlertDialogCancel,
 };
 
---- FILE: apps/web/src/components/ui/table.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/table.tsx
+=========================================
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -4259,7 +5085,10 @@ TableCaption.displayName = "TableCaption";
 
 export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption };
 
---- FILE: apps/web/src/components/ui/resizable.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/resizable.tsx
+=========================================
 import { GripVertical } from "lucide-react";
 import * as ResizablePrimitive from "react-resizable-panels";
 
@@ -4298,7 +5127,10 @@ const ResizableHandle = ({
 
 export { ResizablePanelGroup, ResizablePanel, ResizableHandle };
 
---- FILE: apps/web/src/components/ui/toaster.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/toaster.tsx
+=========================================
 import { useToast } from "@/hooks/use-toast";
 import { Toast, ToastClose, ToastDescription, ToastProvider, ToastTitle, ToastViewport } from "@/components/ui/toast";
 
@@ -4324,7 +5156,10 @@ export function Toaster() {
   );
 }
 
---- FILE: apps/web/src/components/ui/navigation-menu.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/navigation-menu.tsx
+=========================================
 import * as React from "react";
 import * as NavigationMenuPrimitive from "@radix-ui/react-navigation-menu";
 import { cva } from "class-variance-authority";
@@ -4446,7 +5281,10 @@ export {
   NavigationMenuViewport,
 };
 
---- FILE: apps/web/src/components/ui/sheet.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/sheet.tsx
+=========================================
 import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { cva, type VariantProps } from "class-variance-authority";
 import { X } from "lucide-react";
@@ -4555,7 +5393,10 @@ export {
   SheetTrigger,
 };
 
---- FILE: apps/web/src/components/ui/toggle.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/toggle.tsx
+=========================================
 import * as React from "react";
 import * as TogglePrimitive from "@radix-ui/react-toggle";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -4594,7 +5435,10 @@ Toggle.displayName = TogglePrimitive.Root.displayName;
 
 export { Toggle, toggleVariants };
 
---- FILE: apps/web/src/components/ui/context-menu.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/context-menu.tsx
+=========================================
 import * as React from "react";
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { Check, ChevronRight, Circle } from "lucide-react";
@@ -4774,7 +5618,10 @@ export {
   ContextMenuRadioGroup,
 };
 
---- FILE: apps/web/src/components/ui/textarea.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/textarea.tsx
+=========================================
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -4797,7 +5644,10 @@ Textarea.displayName = "Textarea";
 
 export { Textarea };
 
---- FILE: apps/web/src/components/ui/skeleton.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/skeleton.tsx
+=========================================
 import { cn } from "@/lib/utils";
 
 function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
@@ -4806,7 +5656,10 @@ function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>)
 
 export { Skeleton };
 
---- FILE: apps/web/src/components/ui/breadcrumb.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/breadcrumb.tsx
+=========================================
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { ChevronRight, MoreHorizontal } from "lucide-react";
@@ -4898,7 +5751,10 @@ export {
   BreadcrumbEllipsis,
 };
 
---- FILE: apps/web/src/components/ui/toggle-group.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/toggle-group.tsx
+=========================================
 import * as React from "react";
 import * as ToggleGroupPrimitive from "@radix-ui/react-toggle-group";
 import { type VariantProps } from "class-variance-authority";
@@ -4949,7 +5805,10 @@ ToggleGroupItem.displayName = ToggleGroupPrimitive.Item.displayName;
 
 export { ToggleGroup, ToggleGroupItem };
 
---- FILE: apps/web/src/components/ui/dropdown-menu.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/dropdown-menu.tsx
+=========================================
 import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { Check, ChevronRight, Circle } from "lucide-react";
@@ -5130,7 +5989,10 @@ export {
   DropdownMenuRadioGroup,
 };
 
---- FILE: apps/web/src/components/ui/hover-card.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/hover-card.tsx
+=========================================
 import * as React from "react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 
@@ -5159,7 +6021,10 @@ HoverCardContent.displayName = HoverCardPrimitive.Content.displayName;
 
 export { HoverCard, HoverCardTrigger, HoverCardContent };
 
---- FILE: apps/web/src/components/ui/input.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/input.tsx
+=========================================
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -5183,7 +6048,10 @@ Input.displayName = "Input";
 
 export { Input };
 
---- FILE: apps/web/src/components/ui/sonner.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/sonner.tsx
+=========================================
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, toast } from "sonner";
 
@@ -5212,14 +6080,20 @@ const Toaster = ({ ...props }: ToasterProps) => {
 
 export { Toaster, toast };
 
---- FILE: apps/web/src/components/ui/aspect-ratio.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/aspect-ratio.tsx
+=========================================
 import * as AspectRatioPrimitive from "@radix-ui/react-aspect-ratio";
 
 const AspectRatio = AspectRatioPrimitive.Root;
 
 export { AspectRatio };
 
---- FILE: apps/web/src/components/ui/slider.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/slider.tsx
+=========================================
 import * as React from "react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 
@@ -5244,7 +6118,10 @@ Slider.displayName = SliderPrimitive.Root.displayName;
 
 export { Slider };
 
---- FILE: apps/web/src/components/ui/scroll-area.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/scroll-area.tsx
+=========================================
 import * as React from "react";
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 
@@ -5284,7 +6161,10 @@ ScrollBar.displayName = ScrollAreaPrimitive.ScrollAreaScrollbar.displayName;
 
 export { ScrollArea, ScrollBar };
 
---- FILE: apps/web/src/components/ui/badge.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/badge.tsx
+=========================================
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
@@ -5315,7 +6195,10 @@ function Badge({ className, variant, ...props }: BadgeProps) {
 
 export { Badge, badgeVariants };
 
---- FILE: apps/web/src/components/ui/sidebar.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/sidebar.tsx
+=========================================
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { VariantProps, cva } from "class-variance-authority";
@@ -5954,7 +6837,10 @@ export {
   useSidebar,
 };
 
---- FILE: apps/web/src/components/ui/tabs.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/tabs.tsx
+=========================================
 import * as React from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 
@@ -6009,7 +6895,10 @@ TabsContent.displayName = TabsPrimitive.Content.displayName;
 
 export { Tabs, TabsList, TabsTrigger, TabsContent };
 
---- FILE: apps/web/src/components/ui/separator.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/separator.tsx
+=========================================
 import * as React from "react";
 import * as SeparatorPrimitive from "@radix-ui/react-separator";
 
@@ -6031,7 +6920,10 @@ Separator.displayName = SeparatorPrimitive.Root.displayName;
 
 export { Separator };
 
---- FILE: apps/web/src/components/ui/checkbox.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/checkbox.tsx
+=========================================
 import * as React from "react";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import { Check } from "lucide-react";
@@ -6059,7 +6951,10 @@ Checkbox.displayName = CheckboxPrimitive.Root.displayName;
 
 export { Checkbox };
 
---- FILE: apps/web/src/components/ui/tooltip.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/tooltip.tsx
+=========================================
 import * as React from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 
@@ -6089,7 +6984,10 @@ TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
 
---- FILE: apps/web/src/components/ui/select.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/select.tsx
+=========================================
 import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
@@ -6234,7 +7132,10 @@ export {
   SelectScrollDownButton,
 };
 
---- FILE: apps/web/src/components/ui/calendar.tsx ---
+
+=========================================
+FILE: apps/web/src/components/ui/calendar.tsx
+=========================================
 import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { DayPicker } from "react-day-picker";
@@ -6290,9 +7191,41 @@ Calendar.displayName = "Calendar";
 
 export { Calendar };
 
---- FILE: apps/web/src/main.tsx ---
+
+=========================================
+FILE: apps/web/src/main.tsx
+=========================================
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 
 createRoot(document.getElementById("root")!).render(<App />);
+
+
+=========================================
+FILE: apps/web/vite.config.ts
+=========================================
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react-swc";
+import path from "path";
+import { componentTagger } from "lovable-tagger";
+
+// https://vitejs.dev/config/
+export default defineConfig(({ mode }) => ({
+  server: {
+    host: "::",
+    port: 8080,
+    hmr: {
+      overlay: false,
+    },
+  },
+  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+    dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
+  },
+}));
+
+

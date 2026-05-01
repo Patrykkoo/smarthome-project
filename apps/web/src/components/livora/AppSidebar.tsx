@@ -82,7 +82,7 @@ export function AppSidebar() {
         {!collapsed && (
           <div className="mt-2 flex items-center gap-3 rounded-2xl glass p-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/40 font-display text-sm font-semibold">
-              L
+              P
             </div>
             <div className="flex-1 leading-tight">
               <p className="text-sm font-semibold text-foreground">Patryk</p>

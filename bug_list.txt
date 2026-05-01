@@ -10,4 +10,6 @@ długość w zaleności od wielkości cyfr.
 
 4. Responsywność w przeglądarce
 
-5. Zawartość kafelków w Devices & Rooms (napis ON/OFF)
+5. Kolor w kółku pokazuje inny od faktycznie wybranego
+
+6. Nie pokazuje całościowego zuzycia prądu w kWh

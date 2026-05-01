@@ -47,8 +47,15 @@ const start = async () => {
 
             if (topic.startsWith('zigbee2mqtt/bridge')) return;
 
-            // Zapis pomiarów
-            const friendlyName = topic.replace('zigbee2mqtt/', '');
+            // --- NOWA LOGIKA NAZW I DOSTĘPNOŚCI ---
+            let friendlyName = topic.replace('zigbee2mqtt/', '');
+            let isAvailability = false;
+
+            // Jeśli to wiadomość o braku połączenia, obcinamy końcówkę "/availability"
+            if (friendlyName.endsWith('/availability')) {
+                friendlyName = friendlyName.replace('/availability', '');
+                isAvailability = true;
+            }
 
             const deviceResult = await pool.query(
                 'SELECT id FROM devices WHERE friendly_name = $1',
@@ -57,6 +64,15 @@ const start = async () => {
 
             if (deviceResult.rows.length > 0) {
                 const deviceId = deviceResult.rows[0].id;
+                
+                // Jeśli to tylko status offline/online, wysyłamy na front i kończymy
+                if (isAvailability) {
+                    // Zigbee2MQTT na temacie availability wysyła najczęściej {"state": "offline"}
+                    emitDeviceState(friendlyName, { availability: data.state });
+                    return; 
+                }
+
+                // Standardowy zapis pomiarów (telemetrii)
                 const payloadJson = JSON.stringify(data);
 
                 await pool.query(`
@@ -64,7 +80,7 @@ const start = async () => {
                     VALUES (CURRENT_TIMESTAMP, $1, $2)
                     `, [deviceId, payloadJson]);
 
-                    console.log(`Telemetry saved for [${friendlyName}].`);
+                console.log(`Telemetry saved for [${friendlyName}].`);
                 
                 emitDeviceState(friendlyName, data);
             }

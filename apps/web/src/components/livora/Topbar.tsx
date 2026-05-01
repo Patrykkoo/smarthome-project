@@ -1,4 +1,4 @@
-import { Bell, Plus, Loader2, Radio } from "lucide-react";
+import { Bell, Plus, Radio } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Switch } from "@/components/ui/switch";
 import { useState, useEffect } from "react";
@@ -6,14 +6,13 @@ import axios from "axios";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const API_URL = 'http://192.168.0.66:3000/api';
+const API_URL = import.meta.env.VITE_API_URL;
 
 export function Topbar() {
   const [home, setHome] = useState(true);
   const [isPairing, setIsPairing] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
 
-  // Odliczanie czasu parowania
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (isPairing && timeLeft > 0) {
@@ -31,17 +30,19 @@ export function Topbar() {
       setIsPairing(newState);
       
       if (newState) {
-        setTimeLeft(180); // 3 minuty
-        toast.info("Tryb parowania aktywowany", {
-          description: "Twoja sieć Zigbee jest teraz otwarta dla nowych urządzeń.",
+        setTimeLeft(180);
+        toast.info("Pairing mode activated", {
+          description: "Your Zigbee network is now open for new devices.",
           duration: 5000,
         });
       } else {
         setTimeLeft(0);
-        toast.success("Tryb parowania wyłączony");
+        toast.info("Pairing mode deactivated", {
+          description: "Your network is closed."
+        });
       }
     } catch (error) {
-      toast.error("Błąd sieci", { description: "Nie udało się zmienić trybu parowania." });
+      toast.error("Network error", { description: "Failed to change pairing mode." });
     }
   };
 
@@ -58,16 +59,16 @@ export function Topbar() {
       <div className="hidden md:block flex-1">
         <h2 className="font-display text-lg font-semibold leading-tight">Hi, Patryk</h2>
         <p className="text-xs text-muted-foreground">
-          {isPairing ? `Pairing active: ${formatTime(timeLeft)}` : "Welcome home — everything is calm."}
+          {isPairing ? `Pairing active: ${formatTime(timeLeft)}` : "Welcome home."}
         </p>
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        {/* PRZYCISK PAROWANIA ZAMIAST SEARCH */}
+        {/* ZMIANA: justify-start zamiast justify-center, stały margines px-4 i minimalnie szerszy button */}
         <button
           onClick={togglePairing}
           className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-full transition-all duration-500",
+            "flex items-center justify-start px-4 gap-2 py-2 rounded-full transition-all duration-500 w-[165px]",
             isPairing 
               ? "bg-orange-500 text-white animate-pulse shadow-[0_0_15px_rgba(249,115,22,0.5)]" 
               : "glass hover:bg-muted/50 text-foreground"
@@ -75,12 +76,12 @@ export function Topbar() {
         >
           {isPairing ? (
             <>
-              <Radio className="h-4 w-4 animate-bounce" />
-              <span className="text-sm font-medium">Connecting... ({formatTime(timeLeft)})</span>
+              <Radio className="h-4 w-4 shrink-0" />
+              <span className="text-sm font-medium tabular-nums">Pairing... ({formatTime(timeLeft)})</span>
             </>
           ) : (
             <>
-              <Plus className="h-4 w-4" />
+              <Plus className="h-4 w-4 shrink-0" />
               <span className="text-sm font-medium text-muted-foreground">Connect Device</span>
             </>
           )}
