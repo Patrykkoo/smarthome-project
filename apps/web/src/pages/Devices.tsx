@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { 
   Lightbulb, LayoutGrid, Pencil, Trash2, Thermometer, Sun, Palette, Sparkles, Signal,
-  Plug, Lock, Unlock, Timer, Zap, Activity, BatteryCharging, Minus, Plus, RotateCcw, WifiOff
+  Plug, Lock, Unlock, Timer, Zap, Activity, BatteryCharging, Minus, Plus, RotateCcw, WifiOff,
+  ShieldCheck, ShieldAlert, Battery, BatteryLow, Droplets, PlusCircle
 } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
 import { DeviceTile } from "@/components/livora/DeviceTile";
@@ -11,7 +12,7 @@ import { useDevices } from "@/hooks/use-devices";
 import { useWebSockets } from "@/hooks/use-websockets";
 import axios from "axios";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -63,17 +64,30 @@ const lightStatusLabel = (isOn: boolean, brightness: number, colorMode: string, 
 };
 
 const Devices = () => {
-  const { data: devices = [], isLoading } = useDevices();
+  const { data: devices = [], isLoading: isLoadingDevices } = useDevices();
+  
+  const { data: rooms = [], isLoading: isLoadingRooms } = useQuery({
+    queryKey: ['rooms'],
+    queryFn: async () => {
+      const res = await axios.get(`${API_URL}/rooms`);
+      return res.data;
+    }
+  });
+
   const { socket } = useWebSockets();
   const queryClient = useQueryClient();
   
-  const [activeRoom, setActiveRoom] = useState("All");
+  const [activeRoomId, setActiveRoomId] = useState<number | null>(null);
   const [localLiveData, setLocalLiveData] = useState<Record<string, any>>({});
   
   const [deviceToRename, setDeviceToRename] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [deviceToDelete, setDeviceToDelete] = useState<string | null>(null);
   
+  const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
+  const [newRoomName, setNewRoomName] = useState("");
+  const [roomToDelete, setRoomToDelete] = useState<{id: number, name: string} | null>(null);
+
   const [selectedDevice, setSelectedDevice] = useState<any | null>(null);
   
   const [deviceEffects, setDeviceEffects] = useState<Record<string, string>>({});
@@ -82,13 +96,136 @@ const Devices = () => {
   const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [wheelCache, setWheelCache] = useState<Record<string, {h: number, s: number}>>({});
 
+  // =========================================
+  // LOGIKA DŹWIĘKU ALARMOWEGO 
+  // =========================================
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    const ctx = new AudioContextClass();
+    audioCtxRef.current = ctx;
+
+    const unlockAudio = () => {
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+    };
+
+    window.addEventListener('click', unlockAudio, { capture: true });
+    window.addEventListener('touchstart', unlockAudio, { capture: true });
+    window.addEventListener('keydown', unlockAudio, { capture: true });
+
+    return () => {
+      window.removeEventListener('click', unlockAudio, { capture: true });
+      window.removeEventListener('touchstart', unlockAudio, { capture: true });
+      window.removeEventListener('keydown', unlockAudio, { capture: true });
+      if (ctx.state !== 'closed') {
+        ctx.close().catch(() => {});
+      }
+    };
+  }, []);
+
+  const isAlarmActive = Object.values(localLiveData).some(
+    (d: any) => 
+      d.tamper === true || d.tamper === "true" || 
+      d.water_leak === true || d.water_leak === "true"
+  );
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    
+    if (isAlarmActive) {
+      const playBeep = () => {
+        const ctx = audioCtxRef.current;
+        if (!ctx) return;
+        
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
+        if (ctx.state === 'suspended') return;
+        
+        try {
+          const oscillator = ctx.createOscillator();
+          const gainNode = ctx.createGain();
+          
+          oscillator.connect(gainNode);
+          gainNode.connect(ctx.destination);
+          
+          oscillator.type = 'sawtooth';
+          oscillator.frequency.setValueAtTime(800, ctx.currentTime); 
+          oscillator.frequency.setValueAtTime(1000, ctx.currentTime + 0.25); 
+          
+          gainNode.gain.setValueAtTime(0, ctx.currentTime);
+          gainNode.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.05); 
+          gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5); 
+          
+          oscillator.start(ctx.currentTime);
+          oscillator.stop(ctx.currentTime + 0.55);
+        } catch(e) { console.error(e) }
+      };
+
+      playBeep();
+      interval = setInterval(playBeep, 1000); 
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isAlarmActive]);
+
   useEffect(() => {
     if (!socket) return;
     socket.on('device_state_update', (data: any) => {
-      setLocalLiveData(prev => ({
-        ...prev,
-        [data.friendlyName]: { ...(prev[data.friendlyName] || {}), ...data.payload }
-      }));
+      setLocalLiveData(prev => {
+        const current = prev[data.friendlyName] || {};
+        const incoming = { ...data.payload };
+        
+        if (incoming.tamper !== undefined) {
+          const isTampered = incoming.tamper === true || incoming.tamper === "true";
+          const wasTampered = current.tamper === true || current.tamper === "true";
+          
+          if (isTampered && !wasTampered) {
+            toast.error("Security Alert!", {
+              id: `tamper-${data.friendlyName}`,
+              description: `Tamper detected on ${data.friendlyName}!`,
+              duration: Infinity, 
+            });
+          } else if (!isTampered && wasTampered) {
+            toast.dismiss(`tamper-${data.friendlyName}`); 
+          }
+        }
+
+        if (incoming.water_leak !== undefined) {
+          const isLeaking = incoming.water_leak === true || incoming.water_leak === "true";
+          const wasLeaking = current.water_leak === true || current.water_leak === "true";
+
+          if (isLeaking && !wasLeaking) {
+            toast.error("Water Leak Alert!", {
+              id: `leak-${data.friendlyName}`,
+              description: `Leak detected on ${data.friendlyName}!`,
+              duration: Infinity, 
+            });
+          } else if (!isLeaking && wasLeaking) {
+            toast.dismiss(`leak-${data.friendlyName}`); 
+          }
+        }
+
+        if (incoming.countdown !== undefined) {
+          if (incoming.countdown === current.originalCountdown && current.countdown > 0) {
+            incoming.countdown = current.countdown; 
+          } else {
+            incoming.originalCountdown = incoming.countdown;
+          }
+        }
+        
+        return {
+          ...prev,
+          [data.friendlyName]: { ...current, ...incoming }
+        };
+      });
     });
     socket.on('device_list_updated', () => queryClient.invalidateQueries({ queryKey: ['devices'] }));
     return () => { 
@@ -99,9 +236,17 @@ const Devices = () => {
 
   useEffect(() => {
     if (devices.length > 0) {
-      const initialData: Record<string, any> = {};
-      devices.forEach(d => { if (d.last_payload) initialData[d.friendly_name] = d.last_payload; });
-      setLocalLiveData(prev => ({ ...initialData, ...prev }));
+      setLocalLiveData(prev => {
+        let hasChanges = false;
+        const next = { ...prev };
+        devices.forEach(d => {
+          if (d.last_payload && !next[d.friendly_name]) {
+            next[d.friendly_name] = d.last_payload;
+            hasChanges = true;
+          }
+        });
+        return hasChanges ? next : prev;
+      });
     }
   }, [devices]);
 
@@ -134,7 +279,43 @@ const Devices = () => {
   const sendCommandOptimistic = (friendlyName: string, payload: any) => {
     setLocalLiveData(prev => {
       const current = prev[friendlyName] || {};
-      return { ...prev, [friendlyName]: { ...current, ...payload } };
+      const newPayload = { ...payload };
+      
+      if (newPayload.tamper !== undefined) {
+        const isTampered = newPayload.tamper === true || newPayload.tamper === "true";
+        const wasTampered = current.tamper === true || current.tamper === "true";
+
+        if (isTampered && !wasTampered) {
+          toast.error("Security Alert!", {
+            id: `tamper-${friendlyName}`,
+            description: `Tamper detected on ${friendlyName}!`,
+            duration: Infinity,
+          });
+        } else if (!isTampered && wasTampered) {
+          toast.dismiss(`tamper-${friendlyName}`);
+        }
+      }
+
+      if (newPayload.water_leak !== undefined) {
+        const isLeaking = newPayload.water_leak === true || newPayload.water_leak === "true";
+        const wasLeaking = current.water_leak === true || current.water_leak === "true";
+
+        if (isLeaking && !wasLeaking) {
+          toast.error("Water Leak Alert!", {
+            id: `leak-${friendlyName}`,
+            description: `Leak detected on ${friendlyName}!`,
+            duration: Infinity,
+          });
+        } else if (!isLeaking && wasLeaking) {
+          toast.dismiss(`leak-${friendlyName}`);
+        }
+      }
+
+      if (newPayload.countdown !== undefined) {
+        newPayload.originalCountdown = newPayload.countdown;
+      }
+      
+      return { ...prev, [friendlyName]: { ...current, ...newPayload } };
     });
 
     const key = `${friendlyName}_cmd`;
@@ -175,31 +356,90 @@ const Devices = () => {
       await axios.put(`${API_URL}/devices/${oldName}/rename`, { new_name: updatedName.trim() });
       toast.success("Zmieniono nazwę urządzenia");
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      if (selectedDevice && selectedDevice.friendly_name === oldName) {
+         setSelectedDevice({ ...selectedDevice, friendly_name: updatedName.trim() });
+      }
     } catch (error) {
       toast.error("Nie udało się zmienić nazwy urządzenia");
     }
   };
 
-  const rooms = [
-    { name: "All", count: devices.length },
-    { name: "Living room", count: 0 },
-    { name: "Kitchen", count: 0 },
-    { name: "Bedroom", count: 0 },
+  // ==========================================
+  // ZARZĄDZANIE POKOJAMI
+  // ==========================================
+  const handleAddRoom = async () => {
+    if (!newRoomName.trim()) return;
+    try {
+      await axios.post(`${API_URL}/rooms`, { name: newRoomName.trim() });
+      toast.success("Room created successfully");
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      setIsAddRoomOpen(false);
+      setNewRoomName("");
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || "Failed to create room");
+    }
+  };
+
+  const handleDeleteRoom = async (id: number) => {
+    try {
+      await axios.delete(`${API_URL}/rooms/${id}`);
+      toast.success("Room deleted");
+      if (activeRoomId === id) setActiveRoomId(null);
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+    } catch (error) {
+      toast.error("Failed to delete room");
+    }
+  };
+
+  const handleAssignRoom = async (friendlyName: string, roomId: number | null) => {
+    try {
+      await axios.put(`${API_URL}/devices/${friendlyName}/room`, { room_id: roomId });
+      toast.success("Room assigned");
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      
+      if (selectedDevice && selectedDevice.friendly_name === friendlyName) {
+         const assignedRoom = rooms.find((r: any) => r.id === roomId);
+         setSelectedDevice({ 
+           ...selectedDevice, 
+           room_id: roomId, 
+           room_name: assignedRoom ? assignedRoom.name : null 
+         });
+      }
+    } catch (error) {
+      toast.error("Failed to assign room");
+    }
+  };
+
+  const roomCounts = devices.reduce((acc: any, d: any) => {
+    const rId = d.room_id || 'unassigned';
+    acc[rId] = (acc[rId] || 0) + 1;
+    return acc;
+  }, {});
+
+  const displayRooms = [
+    { id: null, name: "All", count: devices.length },
+    ...rooms.map((r: any) => ({ ...r, count: roomCounts[r.id] || 0 }))
   ];
 
-  const filteredDevices = activeRoom === "All" ? devices : [];
+  const filteredDevices = activeRoomId === null 
+    ? devices 
+    : devices.filter((d: any) => d.room_id === activeRoomId);
 
   const selectedData = selectedDevice ? (localLiveData[selectedDevice.friendly_name] || {}) : {};
-  // NOWOŚĆ: Sprawdzenie stanu z payloadu i z klucza 'availability', jeśli Zigbee2MQTT go przysyła.
   const isSelectedOffline = selectedData.state === 'OFFLINE' || selectedData.state === 'offline' || selectedData.availability === 'offline';
-  const isOn = selectedData.state === "ON" && !isSelectedOffline;
   
+  const isSelectedContactSensor = selectedData.contact !== undefined || selectedData.tamper !== undefined;
+  const isSelectedWaterLeak = selectedData.water_leak !== undefined;
+  const isSelectedClimateSensor = selectedData.temperature !== undefined || selectedData.humidity !== undefined;
   const isSelectedPlug = selectedData.power !== undefined || selectedData.current !== undefined || selectedData.energy !== undefined || selectedData.consumption !== undefined;
+  
+  const isOn = (isSelectedContactSensor || isSelectedWaterLeak || isSelectedClimateSensor) ? !isSelectedOffline : (selectedData.state === "ON" && !isSelectedOffline);
 
   let currentHexColor = "#FFFFFF";
   let currentKelvin = 4000;
   
-  if (!isSelectedPlug) {
+  if (!isSelectedPlug && !isSelectedContactSensor && !isSelectedWaterLeak && !isSelectedClimateSensor && !isSelectedOffline) {
     if (selectedData.color_mode === "color_temp" || (selectedData.color_temp && !selectedData.color)) {
       currentKelvin = Math.round(1000000 / selectedData.color_temp);
       currentHexColor = kelvinToHex(currentKelvin);
@@ -229,61 +469,130 @@ const Devices = () => {
     const m = Math.floor((sec % 3600) / 60);
     const s = sec % 60;
     if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
-    return `${m}m ${String(s).padStart(2, "0")}s`;
+    return `${m}:${String(s).padStart(2, "0")}`; 
   };
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto">
-      <div>
-        <h1 className="font-display text-3xl font-semibold">Devices & Rooms</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage every connected device room by room.</p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="font-display text-3xl font-semibold">Devices & Rooms</h1>
+          <p className="text-sm text-muted-foreground mt-1">Manage every connected device room by room.</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_400px] gap-6">
-        <GlassCard className="p-3 h-fit">
+        
+        {/* === LEWY PANEL: LISTA POKOJÓW === */}
+        <GlassCard className="p-3 h-fit flex flex-col gap-2">
           <ul className="space-y-1">
-            {rooms.map((r) => (
-              <li key={r.name}>
+            {displayRooms.map((r) => (
+              <li key={r.id || 'all'}>
                 <button
-                  onClick={() => { setActiveRoom(r.name); setSelectedDevice(null); }}
+                  onClick={() => { setActiveRoomId(r.id); setSelectedDevice(null); }}
                   className={cn(
                     "w-full flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-medium transition-colors",
-                    r.name === activeRoom
+                    r.id === activeRoomId
                       ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
-                      : "text-foreground/70 hover:text-foreground hover:bg-muted/60",
+                      : "text-foreground/70 hover:text-foreground hover:bg-muted/60"
                   )}
                 >
                   <div className="flex items-center gap-2">
-                    {r.name === "All" && <LayoutGrid className="h-4 w-4" />}
-                    <span>{r.name}</span>
+                    {r.id === null && <LayoutGrid className="h-4 w-4" />}
+                    <span className="truncate max-w-[120px] text-left">{r.name}</span>
                   </div>
-                  <span className="text-xs opacity-70">{r.count}</span>
+                  
+                  <div className="flex items-center gap-3">
+                    <span className={cn("text-xs", r.id === activeRoomId ? "opacity-90" : "opacity-70")}>
+                      {r.count}
+                    </span>
+                    
+                    {/* Ikona usuwania ukryta wewnątrz aktywnego przycisku */}
+                    {r.id === activeRoomId && r.id !== null && (
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRoomToDelete({ id: r.id, name: r.name });
+                        }}
+                        className="flex items-center justify-center p-1.5 -mr-1.5 rounded-lg bg-black/10 hover:bg-black/20 dark:bg-white/10 dark:hover:bg-white/20 transition-colors"
+                        title="Delete room"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </div>
+                    )}
+                  </div>
                 </button>
               </li>
             ))}
           </ul>
+
+          <div className="pt-2 border-t border-border/40">
+            <button
+              onClick={() => setIsAddRoomOpen(true)}
+              className="w-full flex items-center justify-start gap-2 rounded-2xl px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            >
+              <PlusCircle className="h-4 w-4" />
+              <span>Add new room</span>
+            </button>
+          </div>
         </GlassCard>
 
+        {/* === ŚRODKOWY PANEL: KAFELKI URZĄDZEŃ === */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 content-start">
-          {isLoading ? (
+          {isLoadingDevices || isLoadingRooms ? (
             <p className="col-span-2 text-center py-10 text-muted-foreground">Loading devices...</p>
           ) : filteredDevices.length === 0 ? (
-            <p className="col-span-2 text-center py-10 text-muted-foreground">No devices found.</p>
+            <p className="col-span-2 text-center py-10 text-muted-foreground">No devices found in this room.</p>
           ) : (
             filteredDevices.map((d) => {
               const dData = localLiveData[d.friendly_name] || {};
               const isOffline = dData.state === 'OFFLINE' || dData.state === 'offline' || dData.availability === 'offline';
-              const dIsOn = dData.state === "ON" && !isOffline;
               
+              const isContactSensor = dData.contact !== undefined || dData.tamper !== undefined;
+              const isWaterLeak = dData.water_leak !== undefined;
+              const isClimateSensor = dData.temperature !== undefined || dData.humidity !== undefined;
               const isPlug = dData.power !== undefined || dData.current !== undefined || dData.energy !== undefined || dData.consumption !== undefined;
+              
+              const closed = dData.contact ?? true;
+              
+              const dIsOn = (isContactSensor || isWaterLeak || isClimateSensor) ? !isOffline : (dData.state === "ON" && !isOffline);
 
               let icon = Lightbulb;
               let statusLabel = "Off";
               let statusColor = undefined;
               let iconColor = undefined;
               let livePulse = false;
+              let showSwitch = true;
 
-              if (isPlug) {
+              if (isWaterLeak) {
+                const leaked = dData.water_leak === true || dData.water_leak === "true";
+
+                icon = Droplets;
+                statusLabel = leaked ? "LEAK!" : "Dry";
+                statusColor = leaked ? "#E5484D" : "#7FD4A1";
+                livePulse = leaked;
+                showSwitch = false;
+
+              } else if (isContactSensor) {
+                const tampered = dData.tamper === true || dData.tamper === "true";
+                
+                icon = tampered ? ShieldAlert : Lock;
+                statusLabel = tampered ? "TAMPER!" : (closed ? "Closed" : "Open");
+                statusColor = tampered ? "#E5484D" : (closed ? "#7FD4A1" : "#E5484D");
+                livePulse = tampered;
+                showSwitch = false;
+                
+              } else if (isClimateSensor) {
+                const temp = dData.temperature ?? 0;
+                const hum = dData.humidity ?? 0;
+                
+                icon = Thermometer;
+                statusLabel = `${temp}°C`;
+                statusColor = temp < 20 ? "#3B82F6" : "#F97316"; 
+                livePulse = false;
+                showSwitch = false;
+
+              } else if (isPlug) {
                 icon = Plug;
                 iconColor = undefined; 
                 livePulse = dIsOn && (dData.power > 0);
@@ -299,6 +608,7 @@ const Devices = () => {
                   }
                   statusLabel = parts.join(" · ");
                 }
+              
               } else {
                 icon = Lightbulb;
                 let dKelvin = undefined;
@@ -323,13 +633,14 @@ const Devices = () => {
                   key={d.id}
                   icon={icon} 
                   name={d.friendly_name}
-                  room={activeRoom}
+                  room={d.room_name || "Unassigned"}
                   livePulse={livePulse}
                   statusLabel={statusLabel}
                   statusColor={statusColor}
                   iconColor={iconColor}
                   enabled={dIsOn}
                   offline={isOffline}
+                  showSwitch={showSwitch}
                   selected={selectedDevice?.id === d.id}
                   onClick={() => setSelectedDevice(d)} 
                   onToggle={() => handleToggle(d.friendly_name)}
@@ -339,15 +650,17 @@ const Devices = () => {
           )}
         </div>
 
+        {/* === PRAWY PANEL: SZCZEGÓŁY URZĄDZENIA === */}
         {selectedDevice ? (
-          <GlassCard variant="strong" className="p-6 h-fit space-y-6 overflow-hidden flex flex-col">
+          <GlassCard variant="strong" className="p-6 h-fit space-y-6 flex flex-col">
             
-            <div className="flex items-start justify-between gap-3 relative z-20">
+            <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-3">
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">{activeRoom}</p>
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                    {selectedDevice.room_name || "Unassigned"}
+                  </p>
                   
-                  {/* ZMIANA: Etykieta połączenia z czerwoną plakietką Offline */}
                   {isSelectedOffline ? (
                     <div className="flex items-center gap-1 text-[10px] text-destructive font-bold bg-destructive/10 px-2 py-0.5 rounded-md uppercase tracking-wider">
                       <WifiOff className="h-3 w-3" />
@@ -362,47 +675,282 @@ const Devices = () => {
                 </div>
                 <h3 className="font-display text-2xl font-semibold truncate mt-1.5">{selectedDevice.friendly_name}</h3>
               </div>
-              <Switch
-                checked={isOn}
-                disabled={isSelectedOffline}
-                onCheckedChange={() => handleToggle(selectedDevice.friendly_name)}
-              />
+              
+              {!isSelectedContactSensor && !isSelectedWaterLeak && !isSelectedClimateSensor && (
+                <Switch
+                  checked={isOn}
+                  disabled={isSelectedOffline}
+                  onCheckedChange={() => handleToggle(selectedDevice.friendly_name)}
+                />
+              )}
             </div>
 
-            {/* KONTENER Z CONTROLSAMI - Z OVERLAYEM OFFLINE */}
-            <div className="relative space-y-6 pb-2 border-b border-border/50">
-              {isSelectedOffline && (
-                <div className="absolute inset-[-16px] z-50 bg-background/50 backdrop-blur-[2px] flex items-center justify-center rounded-xl">
-                  <div className="bg-background/90 border border-white/10 px-5 py-3 rounded-2xl flex items-center gap-3 text-sm font-medium shadow-2xl text-foreground">
-                    <WifiOff className="h-5 w-5 text-destructive" />
-                    Brak odpowiedzi z urządzenia
+            <div>
+              {isSelectedOffline ? (
+                <div className="py-10 flex flex-col items-center justify-center text-center bg-muted/20 rounded-3xl border border-border/40">
+                  <div className="h-16 w-16 rounded-full bg-destructive/10 text-destructive flex items-center justify-center mb-4">
+                    <WifiOff className="h-8 w-8" />
+                  </div>
+                  <p className="text-lg font-semibold text-foreground">Connection failed</p>
+                  <p className="text-sm text-muted-foreground mt-1 px-6">
+                    Cannot connect to the device. Ensure it is within the Zigbee network range and powered on.
+                  </p>
+                </div>
+              ) : isSelectedWaterLeak ? (
+                <div className="space-y-6">
+                  {(() => {
+                    const leaked = selectedData.water_leak === true || selectedData.water_leak === "true";
+                    const bat = Math.round(selectedData.battery ?? 0);
+                    const heroColor = leaked ? "#E5484D" : "#7FD4A1";
+                    
+                    return (
+                      <>
+                        <div className="rounded-2xl p-8 flex flex-col items-center justify-center"
+                          style={{ background: `radial-gradient(circle at 50% 50%, ${heroColor}30, ${heroColor}05 70%)` }}>
+                          <div className="relative">
+                            <Droplets className="h-20 w-20" strokeWidth={1.2} style={{ color: heroColor }} />
+                            {leaked && (
+                              <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                                <span className="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping" style={{ backgroundColor: "#E5484D" }} />
+                                <span className="relative inline-flex h-4 w-4 rounded-full" style={{ backgroundColor: "#E5484D" }} />
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className={cn("rounded-2xl border p-4 transition-colors", !leaked ? "bg-background/50 border-border/40" : "bg-destructive/5 border-destructive/30")}>
+                            <div className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+                              <Droplets className="h-3.5 w-3.5" />
+                              Status
+                            </div>
+                            <p className={cn("mt-1 font-display text-lg font-semibold", !leaked ? "text-foreground" : "text-destructive")}>
+                              {!leaked ? "Dry" : "LEAK!"}
+                            </p>
+                          </div>
+
+                          <div className={cn("rounded-2xl border p-4 transition-colors", bat > 15 ? "bg-background/50 border-border/40" : "bg-destructive/5 border-destructive/30")}>
+                            <div className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+                              {bat > 15 ? <Battery className="h-3.5 w-3.5" /> : <BatteryLow className="h-3.5 w-3.5" />}
+                              Battery
+                            </div>
+                            <p className={cn("mt-1 font-display text-lg font-semibold", bat > 15 ? "text-foreground" : "text-destructive")}>
+                              {bat}<span className="ml-0.5 text-xs font-medium text-muted-foreground">%</span>
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="pt-2">
+                          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">Test Alarm</p>
+                          <div className="flex items-center justify-between rounded-2xl bg-background/50 border border-border/40 px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className={cn("h-9 w-9 rounded-xl flex items-center justify-center",
+                                !leaked ? "bg-muted text-muted-foreground" : "bg-destructive text-primary-foreground")}>
+                                <Droplets className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium">Simulate Leak</p>
+                                <p className="text-xs text-muted-foreground">
+                                  Trigger fake alarm for testing
+                                </p>
+                              </div>
+                            </div>
+                            <Switch 
+                              checked={leaked} 
+                              onCheckedChange={(v) => sendCommandOptimistic(selectedDevice.friendly_name, { water_leak: v })} 
+                            />
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              ) : isSelectedContactSensor ? (
+                <div className="space-y-6">
+                  {(() => {
+                    const closed = selectedData.contact ?? true;
+                    const tampered = selectedData.tamper === true || selectedData.tamper === "true";
+                    const HeroIcon = tampered ? ShieldAlert : closed ? Lock : Unlock;
+                    const heroColor = tampered ? "#E5484D" : closed ? "#7FD4A1" : "#E5484D";
+                    
+                    return (
+                      <div className="rounded-2xl p-8 flex flex-col items-center justify-center"
+                        style={{ background: `radial-gradient(circle at 50% 50%, ${heroColor}30, ${heroColor}05 70%)` }}>
+                        <div className="relative">
+                          <HeroIcon className="h-20 w-20" strokeWidth={1.2} style={{ color: heroColor }} />
+                          {tampered && (
+                            <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                              <span className="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping" style={{ backgroundColor: "#E5484D" }} />
+                              <span className="relative inline-flex h-4 w-4 rounded-full" style={{ backgroundColor: "#E5484D" }} />
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {(() => {
+                    const closed = selectedData.contact ?? true;
+                    const tampered = selectedData.tamper === true || selectedData.tamper === "true";
+                    const bat = Math.round(selectedData.battery ?? 0);
+
+                    return (
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className={cn("rounded-2xl border p-4 transition-colors", closed ? "bg-background/50 border-border/40" : "bg-destructive/5 border-destructive/30")}>
+                          <div className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+                            {closed ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+                            Contact
+                          </div>
+                          <p className={cn("mt-1 font-display text-lg font-semibold", closed ? "text-foreground" : "text-destructive")}>
+                            {closed ? "Closed" : "Open"}
+                          </p>
+                        </div>
+
+                        <div className={cn("rounded-2xl border p-4 transition-colors", !tampered ? "bg-background/50 border-border/40" : "bg-destructive/5 border-destructive/30")}>
+                          <div className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+                            {!tampered ? <ShieldCheck className="h-3.5 w-3.5" /> : <ShieldAlert className="h-3.5 w-3.5" />}
+                            Tamper
+                          </div>
+                          <p className={cn("mt-1 font-display text-lg font-semibold", !tampered ? "text-foreground" : "text-destructive")}>
+                            {!tampered ? "OK" : "ALERT!"}
+                          </p>
+                        </div>
+
+                        <div className={cn("rounded-2xl border p-4 transition-colors", bat > 15 ? "bg-background/50 border-border/40" : "bg-destructive/5 border-destructive/30")}>
+                          <div className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+                            {bat > 15 ? <Battery className="h-3.5 w-3.5" /> : <BatteryLow className="h-3.5 w-3.5" />}
+                            Battery
+                          </div>
+                          <p className={cn("mt-1 font-display text-lg font-semibold", bat > 15 ? "text-foreground" : "text-destructive")}>
+                            {bat}<span className="ml-0.5 text-xs font-medium text-muted-foreground">%</span>
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  <div className="pt-2">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">Test Alarm</p>
+                    <div className="flex items-center justify-between rounded-2xl bg-background/50 border border-border/40 px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className={cn("h-9 w-9 rounded-xl flex items-center justify-center",
+                          !(selectedData.tamper === true || selectedData.tamper === "true") ? "bg-muted text-muted-foreground" : "bg-destructive text-primary-foreground")}>
+                          {!(selectedData.tamper === true || selectedData.tamper === "true") ? <ShieldCheck className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">Simulate Tamper</p>
+                          <p className="text-xs text-muted-foreground">
+                            Trigger fake alarm for testing
+                          </p>
+                        </div>
+                      </div>
+                      <Switch 
+                        checked={selectedData.tamper === true || selectedData.tamper === "true"} 
+                        onCheckedChange={(v) => sendCommandOptimistic(selectedDevice.friendly_name, { tamper: v })} 
+                      />
+                    </div>
                   </div>
                 </div>
-              )}
+              ) : isSelectedClimateSensor ? (
+                <div className="space-y-6">
+                  {(() => {
+                    const temp = selectedData.temperature ?? 0;
+                    const hum = selectedData.humidity ?? "--";
+                    const illum = selectedData.illuminance ?? "--";
+                    const bat = Math.round(selectedData.battery ?? 0);
+                    
+                    const isCold = temp < 20;
+                    const heroColor = isCold ? "#3b82f6" : "#f97316";
+                    const glowFilter = isCold ? "drop-shadow(0 0 16px rgba(59, 130, 246, 0.5))" : "drop-shadow(0 0 16px rgba(249, 115, 22, 0.5))";
 
-              {isSelectedPlug ? (
-                // PANEL SMART PLUG
-                <>
+                    return (
+                      <>
+                        <div
+                          className="rounded-2xl p-8 flex items-center justify-between transition-all duration-500 relative overflow-hidden"
+                          style={{
+                            background: `radial-gradient(circle at 85% 50%, ${heroColor}40 0%, ${heroColor}05 70%)`
+                          }}
+                        >
+                          <div className="relative z-10">
+                            <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Temperature</p>
+                            <p className="mt-2 font-display text-5xl font-semibold text-foreground">
+                              {temp}
+                              <span className="ml-1 text-xl font-medium text-muted-foreground">°C</span>
+                            </p>
+                          </div>
+                          <div className="relative z-10">
+                            <Thermometer
+                              className="h-20 w-20 transition-all duration-500"
+                              strokeWidth={1.2}
+                              style={{
+                                color: heroColor,
+                                filter: glowFilter
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="rounded-2xl bg-background/50 border border-border/40 p-3 flex flex-col justify-center">
+                            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap overflow-hidden">
+                              <Droplets className="h-3 w-3 shrink-0" />
+                              <span className="truncate">Humidity</span>
+                            </div>
+                            <p className="mt-1 font-display text-lg font-semibold truncate">
+                              {hum}<span className="ml-1 text-[10px] font-medium text-muted-foreground">%</span>
+                            </p>
+                          </div>
+                          
+                          <div className="rounded-2xl bg-background/50 border border-border/40 p-3 flex flex-col justify-center">
+                            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap overflow-hidden">
+                              <Sun className="h-3 w-3 shrink-0" />
+                              <span className="truncate">Illuminance</span>
+                            </div>
+                            <p className="mt-1 font-display text-lg font-semibold truncate">
+                              {illum}<span className="ml-1 text-[10px] font-medium text-muted-foreground">lx</span>
+                            </p>
+                          </div>
+
+                          <div className={cn("rounded-2xl border p-3 flex flex-col justify-center", bat > 15 ? "bg-background/50 border-border/40" : "bg-destructive/5 border-destructive/30")}>
+                            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap overflow-hidden">
+                              {bat > 15 ? <Battery className="h-3 w-3 shrink-0" /> : <BatteryLow className="h-3 w-3 shrink-0" />}
+                              <span className="truncate">Battery</span>
+                            </div>
+                            <p className={cn("mt-1 font-display text-lg font-semibold truncate", bat <= 15 && "text-destructive")}>
+                              {bat}<span className="ml-1 text-[10px] font-medium text-muted-foreground">%</span>
+                            </p>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              ) : isSelectedPlug ? (
+                <div className="space-y-6">
                   <div
-                    className={cn(
-                      "rounded-2xl p-6 flex items-center justify-between transition-colors",
-                      isOn ? "bg-blue-500/10" : "bg-muted/40",
-                    )}
+                    className="rounded-2xl p-8 flex items-center justify-between transition-all duration-500 relative overflow-hidden"
+                    style={{
+                      background: isOn
+                        ? "radial-gradient(circle at 85% 50%, #3b82f640 0%, #3b82f605 70%)"
+                        : "hsl(var(--muted) / 0.4)",
+                    }}
                   >
-                    <div>
-                      <p className="text-xs uppercase tracking-wider text-muted-foreground">Power draw</p>
-                      <p className="mt-1 font-display text-4xl font-semibold">
+                    <div className="relative z-10">
+                      <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Power draw</p>
+                      <p className="mt-2 font-display text-5xl font-semibold text-foreground">
                         {isOn ? Math.round(selectedData.power ?? 0) : 0}
-                        <span className="ml-1 text-base font-medium text-muted-foreground">W</span>
+                        <span className="ml-1 text-xl font-medium text-muted-foreground">W</span>
                       </p>
                     </div>
-                    <div
-                      className={cn(
-                        "h-14 w-14 rounded-2xl flex items-center justify-center transition-colors",
-                        isOn ? "bg-blue-500 text-white" : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      <Plug className="h-6 w-6" />
+                    <div className="relative z-10">
+                      <Plug
+                        className="h-20 w-20 transition-all duration-500"
+                        strokeWidth={1.2}
+                        style={{
+                          color: isOn ? "#3b82f6" : "hsl(var(--muted-foreground))",
+                          filter: isOn ? "drop-shadow(0 0 16px rgba(59, 130, 246, 0.5))" : "none"
+                        }}
+                      />
                     </div>
                   </div>
 
@@ -430,14 +978,6 @@ const Devices = () => {
                       <span className="text-sm font-medium inline-flex items-center gap-1.5">
                         <Timer className="h-4 w-4" /> Auto-off timer
                       </span>
-                      {selectedCountdownMins > 0 && (
-                        <button
-                          onClick={() => sendCommandOptimistic(selectedDevice.friendly_name, { countdown: 0 })}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition relative z-20"
-                        >
-                          <RotateCcw className="h-3 w-3" /> Reset
-                        </button>
-                      )}
                     </div>
 
                     <div className="grid grid-cols-5 gap-2 mb-3">
@@ -462,7 +1002,7 @@ const Devices = () => {
 
                     <div className="rounded-2xl bg-background/50 border border-border/40 px-4 py-4 flex items-center justify-between gap-4">
                       <button
-                        onClick={() => sendCommandOptimistic(selectedDevice.friendly_name, { countdown: Math.max(0, (selectedCountdownMins - 5) * 60) })}
+                        onClick={() => sendCommandOptimistic(selectedDevice.friendly_name, { countdown: Math.max(0, (selectedCountdownMins - 5) * 60) }) }
                         disabled={selectedCountdownMins <= 0}
                         className="h-10 w-10 shrink-0 rounded-full bg-background/80 border border-border/50 flex items-center justify-center text-foreground hover:bg-primary hover:text-primary-foreground hover:border-transparent transition disabled:opacity-30 disabled:hover:bg-background/80 disabled:hover:text-foreground disabled:hover:border-border/50"
                       >
@@ -472,25 +1012,21 @@ const Devices = () => {
                       <div className="text-center leading-none flex-1 min-w-0">
                         <p className="font-display text-3xl font-semibold tabular-nums truncate">
                           {(() => {
-                            if (selectedCountdownMins === 0) return "Off";
-                            const h = Math.floor(selectedCountdownMins / 60);
-                            const mm = selectedCountdownMins % 60;
-                            if (h === 0) return `${mm}`;
-                            if (mm === 0) return `${h}h`;
-                            return `${h}h ${mm}`;
+                            if (selectedCountdownSec === 0) return "Off";
+                            const h = Math.floor(selectedCountdownSec / 3600);
+                            const m = Math.floor((selectedCountdownSec % 3600) / 60);
+                            const s = selectedCountdownSec % 60;
+                            
+                            if (h > 0) {
+                              return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+                            }
+                            return `${m}:${s.toString().padStart(2, "0")}`;
                           })()}
-                          {selectedCountdownMins > 0 && (
-                            <span className="ml-1 text-sm font-medium text-muted-foreground">
-                              {selectedCountdownMins < 60 || selectedCountdownMins % 60 !== 0 ? "min" : ""}
-                            </span>
-                          )}
                         </p>
                         <p className="mt-1.5 text-[10px] uppercase tracking-wider text-muted-foreground truncate">
-                          {selectedCountdownMins === 0
+                          {selectedCountdownSec === 0
                             ? "Timer disabled"
-                            : (![0, 15, 30, 60, 120].includes(selectedCountdownMins))
-                            ? "Custom · ±5 min"
-                            : "Tap ± to fine-tune"}
+                            : "Live countdown"}
                         </p>
                       </div>
 
@@ -504,7 +1040,7 @@ const Devices = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between rounded-2xl bg-background/50 border border-border/40 px-4 py-3 relative z-20">
+                  <div className="flex items-center justify-between rounded-2xl bg-background/50 border border-border/40 px-4 py-3">
                     <div className="flex items-center gap-3">
                       <div
                         className={cn(
@@ -526,10 +1062,9 @@ const Devices = () => {
                       onCheckedChange={(v) => sendCommand(selectedDevice.friendly_name, { child_lock: v ? "LOCK" : "UNLOCK" })}
                     />
                   </div>
-                </>
+                </div>
               ) : (
-                // PANEL OŚWIETLENIA
-                <>
+                <div className="space-y-6">
                   <div
                     className="rounded-2xl p-8 flex items-center justify-center transition-colors duration-500"
                     style={{
@@ -575,7 +1110,7 @@ const Devices = () => {
                       min={2000}
                       max={6000}
                       step={100}
-                      className="[&_[role=slider]]:border-foreground/30 relative z-20"
+                      className="[&_[role=slider]]:border-foreground/30"
                       onValueChange={(v) => {
                         setDeviceEffects(prev => ({ ...prev, [selectedDevice.friendly_name]: "none" }));
                         const mireds = Math.round(1000000 / v[0]);
@@ -605,7 +1140,6 @@ const Devices = () => {
                       value={[selectedData.brightness || 0]}
                       max={254}
                       step={1}
-                      className="relative z-20"
                       onValueChange={(v) => sendCommandOptimistic(selectedDevice.friendly_name, { brightness: v[0] })}
                     />
                   </div>
@@ -660,7 +1194,7 @@ const Devices = () => {
                         }
                       }}
                     >
-                      <SelectTrigger className="w-full bg-background/50 rounded-xl border-border/50 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:outline-none outline-none ring-0 relative z-20">
+                      <SelectTrigger className="w-full bg-background/50 rounded-xl border-border/50 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:outline-none outline-none ring-0">
                         <SelectValue placeholder="Select an effect..." />
                       </SelectTrigger>
                       <SelectContent className="glass rounded-xl border-border/50 p-1 shadow-xl">
@@ -676,24 +1210,47 @@ const Devices = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                </>
+                </div>
               )}
             </div>
 
-            {/* AKCJE - Pozostawione poza overlayem, aby można było usunąć wyłączone urządzenie z bazy */}
-            <div className="pt-2 flex items-center gap-2 relative z-20">
-              <button
-                onClick={() => { setDeviceToRename(selectedDevice.friendly_name); setNewName(selectedDevice.friendly_name); }}
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-background/60 hover:bg-background py-2.5 text-sm font-medium transition active:scale-95"
-              >
-                <Pencil className="h-4 w-4" /> Rename
-              </button>
-              <button
-                onClick={() => setDeviceToDelete(selectedDevice.friendly_name)}
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-destructive/10 text-destructive hover:bg-destructive/20 py-2.5 text-sm font-medium transition active:scale-95"
-              >
-                <Trash2 className="h-4 w-4" /> Delete
-              </button>
+            <div className="pt-6 border-t border-border/50 flex flex-col gap-3 mt-auto">
+              <div className="w-full">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 ml-1">Room Assignment</p>
+                <Select 
+                  value={selectedDevice.room_id ? selectedDevice.room_id.toString() : "unassigned"} 
+                  onValueChange={(val) => handleAssignRoom(selectedDevice.friendly_name, val === "unassigned" ? null : parseInt(val))}
+                >
+                  <SelectTrigger className="w-full bg-background/50 rounded-xl border-border/50 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:outline-none outline-none ring-0">
+                    <SelectValue placeholder="Select a room" />
+                  </SelectTrigger>
+                  <SelectContent className="glass rounded-xl border-border/50 p-1 shadow-xl">
+                    <SelectItem value="unassigned" className="rounded-md focus:bg-primary/10 focus:text-foreground cursor-pointer py-2.5">
+                      No Room (All)
+                    </SelectItem>
+                    {rooms.map((r: any) => (
+                      <SelectItem key={r.id} value={r.id.toString()} className="rounded-md focus:bg-primary/10 focus:text-foreground cursor-pointer py-2.5">
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setDeviceToRename(selectedDevice.friendly_name); setNewName(selectedDevice.friendly_name); }}
+                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-background/60 hover:bg-background py-2.5 text-sm font-medium transition active:scale-95"
+                >
+                  <Pencil className="h-4 w-4" /> Rename
+                </button>
+                <button
+                  onClick={() => setDeviceToDelete(selectedDevice.friendly_name)}
+                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 py-2.5 text-sm font-medium transition active:scale-95"
+                >
+                  <Trash2 className="h-4 w-4" /> Delete
+                </button>
+              </div>
             </div>
             
           </GlassCard>
@@ -766,6 +1323,67 @@ const Devices = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={isAddRoomOpen} onOpenChange={setIsAddRoomOpen}>
+        <DialogContent className="glass border-white/20 rounded-[28px] max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display">Add New Room</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Input 
+              value={newRoomName} 
+              onChange={(e) => setNewRoomName(e.target.value)} 
+              className="bg-background/50 border-white/10 rounded-xl"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAddRoom();
+              }}
+            />
+          </div>
+          <DialogFooter className="gap-2 mt-4">
+            <Button 
+              variant="outline" 
+              onClick={() => setIsAddRoomOpen(false)} 
+              className="rounded-xl border-none bg-muted hover:bg-muted/80 transition-colors"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleAddRoom}
+              className="rounded-xl transition-colors"
+            >
+              Create Room
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!roomToDelete} onOpenChange={() => setRoomToDelete(null)}>
+        <AlertDialogContent className="glass border-white/20 rounded-[28px] max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-xl font-semibold">Delete Room?</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              Are you sure you want to delete <span className="text-foreground font-medium">{roomToDelete?.name}</span>? 
+              Devices in this room will not be deleted, but will become unassigned.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 mt-4">
+            <AlertDialogCancel className="rounded-xl border-none bg-muted hover:bg-muted/80 transition-colors">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                if (roomToDelete) handleDeleteRoom(roomToDelete.id);
+                setRoomToDelete(null);
+              }}
+              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 };

@@ -10,6 +10,14 @@ długość w zaleności od wielkości cyfr.
 
 4. Responsywność w przeglądarce
 
-5. Kolor w kółku pokazuje inny od faktycznie wybranego
+5. Kolor w kółku pokazuje inny od faktycznie wybranego w zarowkach
 
 6. Nie pokazuje całościowego zuzycia prądu w kWh
+
+7. Ikonki czujników i kolory dla wyrónienia działania
+
+8. Problem z odliczaniem czasu do wyłączenia smart pluga
+
+9. Wykrywanie lokalizacji w dashboardzie
+
+10. Wybór lokalizacji do pogody w ustawieniach.

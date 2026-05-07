@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Cloud,
   Sun,
@@ -12,6 +12,15 @@ import {
   Moon,
   PartyPopper,
   Wind,
+  Droplets,
+  ShieldAlert,
+  Lock,
+  Plug,
+  Sunrise,
+  Sunset,
+  CloudRain,
+  CloudLightning,
+  CloudSnow
 } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
 import { DeviceTile } from "@/components/livora/DeviceTile";
@@ -19,26 +28,226 @@ import { RoomFilter } from "@/components/livora/RoomFilter";
 import { ScenePill } from "@/components/livora/ScenePill";
 import { MetricBadge } from "@/components/livora/MetricBadge";
 
-const rooms = ["All", "Living room", "Kitchen", "Bedroom", "Bathroom"];
+import { useDevices } from "@/hooks/use-devices";
+import { useWebSockets } from "@/hooks/use-websockets";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
+import { toast } from "sonner";
+import { hexToHsl, hslToHex, kelvinToHex } from "@/lib/color";
 
-const allDevices = [
-  { id: 1, icon: Lightbulb, name: "Ambient Lights", room: "Living room", value: "78", unit: "%", enabled: true, accent: true },
-  { id: 2, icon: Snowflake, name: "Climate Control", room: "Living room", value: "21.5", unit: "°C", enabled: true },
-  { id: 3, icon: Camera, name: "Front Camera", room: "Entrance", value: "Live", enabled: true },
-  { id: 4, icon: Speaker, name: "Bose Soundbar", room: "Living room", value: "32", unit: "%", enabled: false },
-  { id: 5, icon: Lightbulb, name: "Kitchen Strip", room: "Kitchen", value: "60", unit: "%", enabled: true },
-  { id: 6, icon: Wind, name: "Bedroom Fan", room: "Bedroom", value: "Auto", enabled: false },
-];
+const API_URL = import.meta.env.VITE_API_URL;
+
+const lightStatusLabel = (isOn: boolean, brightness: number, colorMode: string, kelvin?: number, hexColor?: string) => {
+  if (!isOn) return "Off";
+  let mode = "Custom";
+  if (colorMode === "color_temp" || (kelvin && colorMode !== "hs" && colorMode !== "xy")) {
+    if (kelvin != null) mode = kelvin >= 4500 ? "Cold" : kelvin >= 3000 ? "Neutral" : "Warm";
+  } else if (hexColor) {
+    const { s, l } = hexToHsl(hexColor);
+    if (s < 12 || l > 92) mode = "White";
+  }
+  return `${mode} · ${brightness}%`;
+};
+
+// Funkcja mapująca kody pogodowe WMO na czytelny tekst i ikonę
+const getWeatherInfo = (code: number) => {
+  if (code === 0) return { label: "Clear sky", Icon: Sun };
+  if (code >= 1 && code <= 3) return { label: "Partly cloudy", Icon: Cloud };
+  if (code === 45 || code === 48) return { label: "Foggy", Icon: Cloud };
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return { label: "Rainy", Icon: CloudRain };
+  if (code >= 71 && code <= 77) return { label: "Snowy", Icon: CloudSnow };
+  if (code >= 95) return { label: "Stormy", Icon: CloudLightning };
+  return { label: "Unknown", Icon: Cloud };
+};
 
 const Dashboard = () => {
-  const [activeRoom, setActiveRoom] = useState("All");
   const [activeScene, setActiveScene] = useState("Natural");
-  const [devices, setDevices] = useState(allDevices);
+  const [activeRoomName, setActiveRoomName] = useState("All");
 
-  const toggle = (id: number) =>
-    setDevices((prev) => prev.map((d) => (d.id === id ? { ...d, enabled: !d.enabled } : d)));
+  const { data: devices = [], isLoading: isLoadingDevices } = useDevices();
+  const { data: rooms = [] } = useQuery({
+    queryKey: ['rooms'],
+    queryFn: async () => {
+      const res = await axios.get(`${API_URL}/rooms`);
+      return res.data;
+    }
+  });
 
-  const filtered = activeRoom === "All" ? devices : devices.filter((d) => d.room === activeRoom);
+  // --- POBIERANIE POGODY Z OPEN-METEO ---
+  // Ustawione na twardo współrzędne (Szczecin), docelowo do zastąpienia danymi z profilu domu w DB
+  const { data: weatherData } = useQuery({
+    queryKey: ['weather'],
+    queryFn: async () => {
+      const res = await axios.get('https://api.open-meteo.com/v1/forecast?latitude=53.4289&longitude=14.553&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code&daily=sunrise,sunset&timezone=auto');
+      return res.data;
+    },
+    refetchInterval: 15 * 60 * 1000 // odświeżaj co 15 minut
+  });
+
+  const { socket } = useWebSockets();
+  const queryClient = useQueryClient();
+  const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  
+  const [localLiveData, setLocalLiveData] = useState<Record<string, any>>({});
+  const [wheelCache] = useState<Record<string, {h: number, s: number}>>({});
+
+  const roomNames = ["All", ...rooms.map((r: any) => r.name)];
+  if (devices.some((d: any) => !d.room_id)) {
+    roomNames.push("Unassigned");
+  }
+
+  // --- WEBSOCKETS I AKTUALIZACJE NA ŻYWO ---
+  useEffect(() => {
+    if (!socket) return;
+    socket.on('device_state_update', (data: any) => {
+      setLocalLiveData(prev => {
+        const current = prev[data.friendlyName] || {};
+        const incoming = { ...data.payload };
+        
+        if (incoming.countdown !== undefined) {
+          if (incoming.countdown === current.originalCountdown && current.countdown > 0) {
+            incoming.countdown = current.countdown; 
+          } else {
+            incoming.originalCountdown = incoming.countdown;
+          }
+        }
+        
+        return {
+          ...prev,
+          [data.friendlyName]: { ...current, ...incoming }
+        };
+      });
+    });
+    socket.on('device_list_updated', () => queryClient.invalidateQueries({ queryKey: ['devices'] }));
+    return () => { 
+      socket.off('device_state_update'); 
+      socket.off('device_list_updated');
+    };
+  }, [socket, queryClient]);
+
+  useEffect(() => {
+    if (devices.length > 0) {
+      setLocalLiveData(prev => {
+        let hasChanges = false;
+        const next = { ...prev };
+        devices.forEach(d => {
+          if (d.last_payload && !next[d.friendly_name]) {
+            next[d.friendly_name] = d.last_payload;
+            hasChanges = true;
+          }
+        });
+        return hasChanges ? next : prev;
+      });
+    }
+  }, [devices]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setLocalLiveData(prev => {
+        let hasChanges = false;
+        const next = { ...prev };
+        Object.keys(next).forEach(key => {
+          if (next[key]?.countdown > 0) {
+            next[key] = { ...next[key], countdown: Math.max(0, next[key].countdown - 1) };
+            hasChanges = true;
+          }
+        });
+        return hasChanges ? next : prev;
+      });
+    }, 1000); 
+    
+    return () => clearInterval(id);
+  }, []);
+
+  const handleToggle = (friendlyName: string) => {
+    const key = `${friendlyName}_cmd`;
+    if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key]);
+
+    setLocalLiveData(prev => {
+      const current = prev[friendlyName] || {};
+      const newState = current.state === "ON" ? "OFF" : "ON";
+      return { ...prev, [friendlyName]: { ...current, state: newState } };
+    });
+
+    debounceRefs.current[key] = setTimeout(() => {
+      axios.post(`${API_URL}/devices/${friendlyName}/set`, { state: 'TOGGLE' })
+        .catch(() => toast.error(`Błąd sterowania: ${friendlyName}`));
+    }, 250);
+  };
+
+  const formatRemaining = (sec: number) => {
+    if (sec <= 0) return "Disabled";
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+    return `${m}:${String(s).padStart(2, "0")}`; 
+  };
+
+  const filteredDevices = activeRoomName === "All" 
+    ? devices 
+    : devices.filter((d: any) => (d.room_name || "Unassigned") === activeRoomName);
+
+  // --- LOGIKA DO WYŚWIETLANIA WIDGETÓW BOHATERA ---
+  
+  // 1. Zmienne pogody zewnętrznej
+  let weatherTemp = "--";
+  let weatherFeels = "--";
+  let weatherHum = "--";
+  let WeatherIcon = Cloud;
+  let weatherLabel = "Loading data...";
+  let locationName = "Szczecin"; // Twardo zakodowane dla lokalizacji pogody
+
+  // 2. Obliczanie słońca
+  let sunLabel = "Sunset";
+  let sunTimeStr = "--:--";
+  let SunEventIcon = Sunset;
+
+  if (weatherData && weatherData.current) {
+    weatherTemp = weatherData.current.temperature_2m.toFixed(1);
+    weatherFeels = weatherData.current.apparent_temperature.toFixed(1);
+    weatherHum = weatherData.current.relative_humidity_2m;
+    
+    const info = getWeatherInfo(weatherData.current.weather_code);
+    WeatherIcon = info.Icon;
+    weatherLabel = info.label;
+
+    const now = new Date();
+    const sunrise = new Date(weatherData.daily.sunrise[0]);
+    const sunset = new Date(weatherData.daily.sunset[0]);
+    const tomorrowSunrise = new Date(weatherData.daily.sunrise[1]);
+
+    if (now < sunrise) {
+      sunLabel = "Sunrise";
+      sunTimeStr = sunrise.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      SunEventIcon = Sunrise;
+    } else if (now < sunset) {
+      sunLabel = "Sunset";
+      sunTimeStr = sunset.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      SunEventIcon = Sunset;
+    } else {
+      sunLabel = "Sunrise";
+      sunTimeStr = tomorrowSunrise.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      SunEventIcon = Sunrise;
+    }
+  }
+
+  // 3. Szukanie czujnika temperatury wewnętrznej
+  const climateDevice = devices.find((d: any) => {
+    const live = localLiveData[d.friendly_name] || d.last_payload || {};
+    return live.temperature !== undefined;
+  });
+
+  let indoorTemp = "--";
+  let indoorHum = "--";
+  let indoorRoom = "No sensor found";
+
+  if (climateDevice) {
+    const live = localLiveData[climateDevice.friendly_name] || climateDevice.last_payload || {};
+    indoorTemp = live.temperature !== undefined ? live.temperature.toFixed(1) : "--";
+    indoorHum = live.humidity !== undefined ? `${live.humidity}% humidity` : 'No humidity data';
+    indoorRoom = climateDevice.room_name || "Unassigned";
+  }
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto">
@@ -46,33 +255,38 @@ const Dashboard = () => {
 
       {/* Hero + energy strip */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <GlassCard variant="strong" className="lg:col-span-2 p-7 relative overflow-hidden">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Cloud className="h-4 w-4" />
-            Partly cloudy · Warsaw
-          </div>
-          <div className="mt-4 flex items-end gap-4">
-            <p className="font-display text-7xl font-semibold leading-none">16.7°</p>
-            <div className="pb-2 text-sm text-muted-foreground">
-              <p>Feels like 15°</p>
-              <p>Humidity 62%</p>
+        <GlassCard variant="strong" className="lg:col-span-2 p-7 relative overflow-hidden flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <WeatherIcon className="h-4 w-4" />
+              {weatherLabel} · {locationName}
+            </div>
+            <div className="mt-4 flex items-end gap-4">
+              <p className="font-display text-7xl font-semibold leading-none">{weatherTemp}°</p>
+              <div className="pb-2 text-sm text-muted-foreground">
+                <p>Feels like {weatherFeels}°</p>
+                <p>Humidity {weatherHum}%</p>
+              </div>
             </div>
           </div>
 
           <div className="mt-8 grid grid-cols-2 gap-4">
+            {/* Wewnętrzny Termometr */}
             <div className="rounded-2xl bg-background/50 p-4">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-                <Thermometer className="h-3.5 w-3.5" /> Living room
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground truncate">
+                <Thermometer className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{indoorRoom}</span>
               </div>
-              <p className="mt-2 font-display text-2xl font-semibold">21.5°C</p>
-              <p className="text-xs text-muted-foreground">Cooling mode active</p>
+              <p className="mt-2 font-display text-2xl font-semibold">{indoorTemp}°C</p>
+              <p className="text-xs text-muted-foreground truncate">{indoorHum}</p>
             </div>
+            
+            {/* Słońce */}
             <div className="rounded-2xl bg-background/50 p-4">
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-                <Sun className="h-3.5 w-3.5" /> Sunset
+                <SunEventIcon className="h-3.5 w-3.5" /> {sunLabel}
               </div>
-              <p className="mt-2 font-display text-2xl font-semibold">19:47</p>
-              <p className="text-xs text-muted-foreground">Lights warm at 19:30</p>
+              <p className="mt-2 font-display text-2xl font-semibold">{sunTimeStr}</p>
+              <p className="text-xs text-muted-foreground opacity-0 select-none">Placeholder</p>
             </div>
           </div>
         </GlassCard>
@@ -86,7 +300,6 @@ const Dashboard = () => {
             65.32<span className="ml-1 text-base font-medium text-muted-foreground">kW/h</span>
           </p>
 
-          {/* Sparkline */}
           <svg viewBox="0 0 200 60" className="mt-6 w-full h-16">
             <defs>
               <linearGradient id="spark" x1="0" x2="0" y1="0" y2="1">
@@ -135,27 +348,113 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Rooms + devices */}
+      {/* Rooms + dynamic devices */}
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h2 className="font-display text-xl font-semibold">Devices</h2>
-          <RoomFilter rooms={rooms} active={activeRoom} onChange={setActiveRoom} />
+          <RoomFilter rooms={roomNames} active={activeRoomName} onChange={setActiveRoomName} />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map((d) => (
-            <DeviceTile
-              key={d.id}
-              icon={d.icon}
-              name={d.name}
-              room={d.room}
-              value={d.value}
-              unit={d.unit}
-              enabled={d.enabled}
-              accent={d.accent}
-              onToggle={() => toggle(d.id)}
-            />
-          ))}
+          {isLoadingDevices ? (
+            <p className="col-span-4 text-center py-10 text-muted-foreground">Loading devices...</p>
+          ) : filteredDevices.length === 0 ? (
+             <p className="col-span-4 text-center py-10 text-muted-foreground">No devices found in {activeRoomName}.</p>
+          ) : (
+            filteredDevices.map((d: any) => {
+              const dData = localLiveData[d.friendly_name] || {};
+              const isOffline = dData.state === 'OFFLINE' || dData.state === 'offline' || dData.availability === 'offline';
+              
+              const isContactSensor = dData.contact !== undefined || dData.tamper !== undefined;
+              const isWaterLeak = dData.water_leak !== undefined;
+              const isClimateSensor = dData.temperature !== undefined || dData.humidity !== undefined;
+              const isPlug = dData.power !== undefined || dData.current !== undefined || dData.energy !== undefined || dData.consumption !== undefined;
+              
+              const closed = dData.contact ?? true;
+              const dIsOn = (isContactSensor || isWaterLeak || isClimateSensor) ? !isOffline : (dData.state === "ON" && !isOffline);
+
+              let icon = Lightbulb;
+              let statusLabel = "Off";
+              let statusColor = undefined;
+              let iconColor = undefined;
+              let livePulse = false;
+              let showSwitch = true;
+
+              if (isWaterLeak) {
+                const leaked = dData.water_leak === true || dData.water_leak === "true";
+                icon = Droplets;
+                statusLabel = leaked ? "LEAK!" : "Dry";
+                statusColor = leaked ? "#E5484D" : "#7FD4A1";
+                livePulse = leaked;
+                showSwitch = false;
+
+              } else if (isContactSensor) {
+                const tampered = dData.tamper === true || dData.tamper === "true";
+                icon = tampered ? ShieldAlert : Lock;
+                statusLabel = tampered ? "TAMPER!" : (closed ? "Closed" : "Open");
+                statusColor = tampered ? "#E5484D" : (closed ? "#7FD4A1" : "#E5484D");
+                livePulse = tampered;
+                showSwitch = false;
+                
+              } else if (isClimateSensor) {
+                const temp = dData.temperature ?? 0;
+                const hum = dData.humidity ?? 0;
+                icon = Thermometer;
+                statusLabel = `${temp}°C · ${hum}%`;
+                statusColor = temp < 20 ? "#3B82F6" : "#F97316"; 
+                livePulse = false;
+                showSwitch = false;
+
+              } else if (isPlug) {
+                icon = Plug;
+                livePulse = dIsOn && (dData.power > 0);
+                if (!dIsOn) {
+                  statusLabel = "Off";
+                  livePulse = false;
+                } else {
+                  const remainingSec = dData.countdown || 0;
+                  let parts = [`${Math.round(dData.power ?? 0)}W`];
+                  if (remainingSec > 0) parts.push(`Auto-off: ${formatRemaining(remainingSec)}`);
+                  statusLabel = parts.join(" · ");
+                }
+              
+              } else {
+                icon = Lightbulb;
+                let dKelvin = undefined;
+                if (dData.color_mode === "color_temp" || (dData.color_temp && !dData.color)) {
+                  dKelvin = Math.round(1000000 / dData.color_temp);
+                  statusColor = kelvinToHex(dKelvin);
+                } else if (dData.color && dData.color.h !== undefined) {
+                  statusColor = hslToHex(dData.color.h, dData.color.s || 100, 50);
+                } else if (wheelCache[d.friendly_name]) {
+                  const cached = wheelCache[d.friendly_name];
+                  statusColor = hslToHex(cached.h, cached.s, 50);
+                } else if (dData.color_temp) {
+                  dKelvin = Math.round(1000000 / dData.color_temp);
+                  statusColor = kelvinToHex(dKelvin);
+                }
+                const brightnessPct = Math.round(((dData.brightness || 0) / 254) * 100);
+                statusLabel = lightStatusLabel(dIsOn, brightnessPct, dData.color_mode, dKelvin, statusColor);
+              }
+
+              return (
+                <DeviceTile
+                  key={d.id}
+                  icon={icon} 
+                  name={d.friendly_name}
+                  room={d.room_name || "Unassigned"}
+                  livePulse={livePulse}
+                  statusLabel={statusLabel}
+                  statusColor={statusColor}
+                  iconColor={iconColor}
+                  enabled={dIsOn}
+                  offline={isOffline}
+                  showSwitch={showSwitch}
+                  onToggle={() => handleToggle(d.friendly_name)}
+                />
+              );
+            })
+          )}
         </div>
       </div>
     </div>

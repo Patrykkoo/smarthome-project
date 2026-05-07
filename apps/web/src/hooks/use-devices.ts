@@ -9,6 +9,8 @@ export interface Device {
     last_seen: string;
     exposes: any;
     last_payload?: any;
+    room_id?: number | null;
+    room_name?: string | null;
 }
 
 const fetchDevices = async (): Promise<Device[]> => {

@@ -34,11 +34,59 @@ export const emitDevicesUpdated = () => {
     io.emit('device_list_updated');
 };
 
+// ==========================================
+// POKOJE (ROOMS)
+// ==========================================
+app.get('/api/rooms', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM rooms ORDER BY id ASC');
+        res.json(result.rows);
+    } catch (error) {
+        console.error('API Error:', error);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.post('/api/rooms', async (req, res) => {
+    const { name } = req.body;
+    if (!name || name.trim() === '') return res.status(400).json({ error: 'Name required' });
+    
+    try {
+        const result = await pool.query(
+            'INSERT INTO rooms (name) VALUES ($1) RETURNING *',
+            [name.trim()]
+        );
+        res.json(result.rows[0]);
+    } catch (error: any) {
+        if (error.code === '23505') { // Kod błędu dla naruszenia zasady UNIQUE
+            return res.status(400).json({ error: 'Room already exists' });
+        }
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.delete('/api/rooms/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Urządzenia przypisane do tego pokoju dostaną automatycznie room_id = NULL
+        await pool.query('DELETE FROM rooms WHERE id = $1', [id]);
+        emitDevicesUpdated(); // Odświeżamy listę urządzeń (straciły pokój)
+        res.json({ message: 'Room deleted' });
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// ==========================================
+// URZĄDZENIA (DEVICES)
+// ==========================================
 app.get('/api/devices', async (req, res) => {
     try {
+        // Zmienione zapytanie SQL – dokleja nazwę pokoju z tabeli rooms
         const result = await pool.query(`
-            SELECT d.*, t.payload as last_payload 
+            SELECT d.*, r.name as room_name, t.payload as last_payload 
             FROM devices d
+            LEFT JOIN rooms r ON d.room_id = r.id
             LEFT JOIN LATERAL (
                 SELECT payload FROM telemetry
                 WHERE device_id = d.id
@@ -54,6 +102,25 @@ app.get('/api/devices', async (req, res) => {
     }
 });
 
+app.put('/api/devices/:friendly_name/room', async (req, res) => {
+    const { friendly_name } = req.params;
+    const { room_id } = req.body; // null oznacza brak przypisania ("All")
+    
+    try {
+        await pool.query(
+            'UPDATE devices SET room_id = $1 WHERE friendly_name = $2',
+            [room_id, friendly_name]
+        );
+        emitDevicesUpdated();
+        res.json({ message: 'Room assigned' });
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// ==========================================
+// MOST ZIGBEE (BRIDGE & STEROWANIE)
+// ==========================================
 app.post('/api/bridge/permit_join', (req, res) => {
     const { permit } = req.body; 
     

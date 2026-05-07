@@ -10,7 +10,6 @@ const start = async () => {
 
     client.on('connect', () => {
         console.log('Connected with MQTT');
-
         client.subscribe('zigbee2mqtt/bridge/devices')
         client.subscribe('zigbee2mqtt/#');
     });
@@ -18,7 +17,14 @@ const start = async () => {
     client.on('message', async (topic, message) => {
         try {
             const rawPayload = message.toString();
-            const data = JSON.parse(rawPayload);
+            let data: any;
+            
+            // 1. Bezpieczne parsowanie (Z2M często wysyła plain text dla availability)
+            try {
+                data = JSON.parse(rawPayload);
+            } catch (e) {
+                data = { state: rawPayload };
+            }
             
             // Dynamiczne wykrywanie urządzeń
             if (topic === 'zigbee2mqtt/bridge/devices') {
@@ -27,7 +33,6 @@ const start = async () => {
 
                     const id = device.ieee_address;
                     const friendlyName = device.friendly_name;
-
                     const exposes = JSON.stringify(device.definition?.exposes || []);
 
                     await pool.query(`
@@ -47,11 +52,10 @@ const start = async () => {
 
             if (topic.startsWith('zigbee2mqtt/bridge')) return;
 
-            // --- NOWA LOGIKA NAZW I DOSTĘPNOŚCI ---
+            // 2. Analiza tematu (czy to główny temat czy /availability)
             let friendlyName = topic.replace('zigbee2mqtt/', '');
             let isAvailability = false;
 
-            // Jeśli to wiadomość o braku połączenia, obcinamy końcówkę "/availability"
             if (friendlyName.endsWith('/availability')) {
                 friendlyName = friendlyName.replace('/availability', '');
                 isAvailability = true;
@@ -65,24 +69,45 @@ const start = async () => {
             if (deviceResult.rows.length > 0) {
                 const deviceId = deviceResult.rows[0].id;
                 
-                // Jeśli to tylko status offline/online, wysyłamy na front i kończymy
+                // 3. Pobranie ostatniej telemetrii, by nie zgubić danych (np. czy to gniazdko)
+                const lastTelemetry = await pool.query(`
+                    SELECT payload FROM telemetry WHERE device_id = $1 ORDER BY time DESC LIMIT 1
+                `, [deviceId]);
+                
+                // pg automatycznie parsuje typ JSONB do obiektu
+                let mergedPayload = lastTelemetry.rows.length > 0 ? lastTelemetry.rows[0].payload : {};
+
                 if (isAvailability) {
-                    // Zigbee2MQTT na temacie availability wysyła najczęściej {"state": "offline"}
-                    emitDeviceState(friendlyName, { availability: data.state });
-                    return; 
+                    const stateValue = data.state || data;
+                    const availabilityStatus = typeof stateValue === 'string' ? stateValue.toLowerCase() : 'offline';
+                    
+                    mergedPayload = { 
+                        ...mergedPayload, 
+                        availability: availabilityStatus,
+                        state: availabilityStatus === 'offline' ? 'OFFLINE' : mergedPayload.state 
+                    };
+                } else {
+                    mergedPayload = { ...mergedPayload, ...data, availability: 'online' };
+                    
+                    // Czyszczenie fałszywego statusu offline jeśli urządzenie wysłało nowy payload
+                    if (mergedPayload.state === 'OFFLINE' || mergedPayload.state === 'offline') {
+                        delete mergedPayload.state;
+                        // Przywrócenie payloadu do poprzedniego stanu
+                        if (data.state !== undefined) mergedPayload.state = data.state;
+                    }
                 }
 
-                // Standardowy zapis pomiarów (telemetrii)
-                const payloadJson = JSON.stringify(data);
-
+                // 4. Zapis połączonego payloadu
                 await pool.query(`
                     INSERT INTO telemetry (time, device_id, payload)
                     VALUES (CURRENT_TIMESTAMP, $1, $2)
-                    `, [deviceId, payloadJson]);
+                `, [deviceId, JSON.stringify(mergedPayload)]);
 
-                console.log(`Telemetry saved for [${friendlyName}].`);
+                if (isAvailability) {
+                    console.log(`[Availability] Device [${friendlyName}] is now ${mergedPayload.availability}`);
+                }
                 
-                emitDeviceState(friendlyName, data);
+                emitDeviceState(friendlyName, mergedPayload);
             }
         } catch (error) {
             console.error(`Error processing message: ${topic}`, error);

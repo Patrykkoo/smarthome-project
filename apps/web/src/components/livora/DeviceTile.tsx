@@ -13,7 +13,8 @@ interface DeviceTileProps {
   unit?: string;
   livePulse?: boolean;
   enabled: boolean;
-  offline?: boolean; // NOWOŚĆ: Tryb offline
+  offline?: boolean;
+  showSwitch?: boolean;
   onToggle?: (v: boolean) => void;
   onClick?: () => void;
   accent?: boolean;
@@ -23,7 +24,7 @@ interface DeviceTileProps {
 }
 
 export function DeviceTile({
-  icon: Icon, name, room, statusLabel, statusColor, value, unit, livePulse, enabled, offline,
+  icon: Icon, name, room, statusLabel, statusColor, value, unit, livePulse, enabled, offline, showSwitch = true,
   onToggle, onClick, accent, selected, iconColor, className,
 }: DeviceTileProps) {
   return (
@@ -34,7 +35,7 @@ export function DeviceTile({
         onClick && "cursor-pointer",
         accent && enabled && !offline && "ring-1 ring-accent/40",
         selected && "ring-2 ring-primary/60 shadow-lg shadow-primary/10",
-        offline && "opacity-60", // Przyciemnienie wyłączonego urządzenia
+        offline && "opacity-60",
         className,
       )}
     >
@@ -42,7 +43,7 @@ export function DeviceTile({
         <div
           className={cn(
             "flex h-11 w-11 items-center justify-center rounded-2xl transition-colors",
-            offline ? "bg-muted text-muted-foreground/50" : // Szary styl dla offline
+            offline ? "bg-muted text-muted-foreground/50" : 
             enabled
               ? iconColor ? "text-primary-foreground" : "bg-primary text-primary-foreground"
               : "bg-muted text-muted-foreground",
@@ -51,9 +52,13 @@ export function DeviceTile({
         >
           <Icon className="h-5 w-5" />
         </div>
-        <div onClick={(e) => { e.stopPropagation(); if (offline) e.preventDefault(); }}>
-          <Switch checked={enabled && !offline} disabled={offline} onCheckedChange={onToggle} />
-        </div>
+        
+        {/* Renderujemy switch tylko jeśli urządzenie go wspiera */}
+        {showSwitch && (
+          <div onClick={(e) => { e.stopPropagation(); if (offline) e.preventDefault(); }}>
+            <Switch checked={enabled && !offline} disabled={offline} onCheckedChange={onToggle} />
+          </div>
+        )}
       </div>
 
       <div className="mt-auto">
@@ -77,13 +82,13 @@ export function DeviceTile({
             <>
               {livePulse ? (
                 <span className="relative flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-60 animate-ping" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-500" />
+                  <span className="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping" style={{ backgroundColor: statusColor || '#3b82f6' }} />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: statusColor || '#3b82f6' }} />
                 </span>
               ) : (
                 statusColor && enabled && (
                   <span
-                    className="h-2.5 w-2.5 rounded-full ring-1 ring-border/60"
+                    className="h-2.5 w-2.5 rounded-full"
                     style={{ backgroundColor: statusColor }}
                   />
                 )
