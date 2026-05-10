@@ -13,7 +13,7 @@ const io = new Server(server, {
         origin: '*',
         methods: ['GET', 'POST']
     }
-})
+});
 
 app.use(cors());
 app.use(express.json());
@@ -24,7 +24,7 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         console.log('Client disconnected from WebSockets');
     });
-})
+});
 
 export const emitDeviceState = (friendlyName: string, payload: any) => {
     io.emit('device_state_update', { friendlyName, payload });
@@ -33,6 +33,60 @@ export const emitDeviceState = (friendlyName: string, payload: any) => {
 export const emitDevicesUpdated = () => {
     io.emit('device_list_updated');
 };
+
+// ==========================================
+// ENERGY STATS
+// ==========================================
+app.get('/api/energy/stats', async (req, res) => {
+    try {
+        // 1. Zużycie dzisiaj w kWh (zostaje po staremu dla wielkiej liczby na ekranie)
+        const todayResult = await pool.query(`
+            SELECT COALESCE(MAX(value) - MIN(value), 0) AS usage 
+            FROM energy_readings 
+            WHERE timestamp >= CURRENT_DATE
+        `);
+        const todayKwh = parseFloat(todayResult.rows[0].usage);
+
+        // 2. Zużycie wczoraj w kWh (do strzałki procentowej)
+        const yesterdayResult = await pool.query(`
+            SELECT COALESCE(MAX(value) - MIN(value), 0) AS usage 
+            FROM energy_readings 
+            WHERE timestamp >= CURRENT_DATE - INTERVAL '1 day' 
+              AND timestamp < CURRENT_DATE
+        `);
+        const yesterdayKwh = parseFloat(yesterdayResult.rows[0].usage);
+
+        // 3. NOWOŚĆ: Moc na żywo (Waty) z ostatnich 60 minut do wykresu falowego
+        const historyResult = await pool.query(`
+            SELECT total_power
+            FROM power_readings
+            WHERE timestamp >= NOW() - INTERVAL '60 minutes'
+            ORDER BY timestamp ASC
+        `);
+
+        let history60m = historyResult.rows.map((row: any) => parseFloat(row.total_power));
+
+        // Uzupełniamy zerami, jeśli baza działa krócej niż 60 minut
+        while (history60m.length < 60) {
+            history60m.unshift(0);
+        }
+        
+        // Zabezpieczenie na wypadek nadmiarowych danych
+        if (history60m.length > 60) {
+            history60m = history60m.slice(-60);
+        }
+
+        res.json({
+            todayKwh: todayKwh.toFixed(2),
+            yesterdayKwh: yesterdayKwh.toFixed(2),
+            history60m: history60m
+        });
+
+    } catch (error) {
+        console.error("Błąd podczas pobierania statystyk energii:", error);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 
 // ==========================================
 // POKOJE (ROOMS)
@@ -58,7 +112,7 @@ app.post('/api/rooms', async (req, res) => {
         );
         res.json(result.rows[0]);
     } catch (error: any) {
-        if (error.code === '23505') { // Kod błędu dla naruszenia zasady UNIQUE
+        if (error.code === '23505') { 
             return res.status(400).json({ error: 'Room already exists' });
         }
         res.status(500).json({ error: 'Database error' });
@@ -68,9 +122,8 @@ app.post('/api/rooms', async (req, res) => {
 app.delete('/api/rooms/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        // Urządzenia przypisane do tego pokoju dostaną automatycznie room_id = NULL
         await pool.query('DELETE FROM rooms WHERE id = $1', [id]);
-        emitDevicesUpdated(); // Odświeżamy listę urządzeń (straciły pokój)
+        emitDevicesUpdated(); 
         res.json({ message: 'Room deleted' });
     } catch (error) {
         res.status(500).json({ error: 'Database error' });
@@ -82,7 +135,6 @@ app.delete('/api/rooms/:id', async (req, res) => {
 // ==========================================
 app.get('/api/devices', async (req, res) => {
     try {
-        // Zmienione zapytanie SQL – dokleja nazwę pokoju z tabeli rooms
         const result = await pool.query(`
             SELECT d.*, r.name as room_name, t.payload as last_payload 
             FROM devices d
@@ -104,7 +156,7 @@ app.get('/api/devices', async (req, res) => {
 
 app.put('/api/devices/:friendly_name/room', async (req, res) => {
     const { friendly_name } = req.params;
-    const { room_id } = req.body; // null oznacza brak przypisania ("All")
+    const { room_id } = req.body; 
     
     try {
         await pool.query(

@@ -16,8 +16,9 @@ długość w zaleności od wielkości cyfr.
 
 7. Ikonki czujników i kolory dla wyrónienia działania
 
-8. Problem z odliczaniem czasu do wyłączenia smart pluga
+8. Pikanie przy alarmie działa jak chce
 
 9. Wykrywanie lokalizacji w dashboardzie
 
 10. Wybór lokalizacji do pogody w ustawieniach.
+

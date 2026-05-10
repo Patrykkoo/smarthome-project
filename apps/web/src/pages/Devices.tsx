@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { 
   Lightbulb, LayoutGrid, Pencil, Trash2, Thermometer, Sun, Palette, Sparkles, Signal,
   Plug, Lock, Unlock, Timer, Zap, Activity, BatteryCharging, Minus, Plus, RotateCcw, WifiOff,
@@ -65,6 +66,8 @@ const lightStatusLabel = (isOn: boolean, brightness: number, colorMode: string, 
 
 const Devices = () => {
   const { data: devices = [], isLoading: isLoadingDevices } = useDevices();
+  const [searchParams] = useSearchParams();
+  const selectParam = searchParams.get('select');
   
   const { data: rooms = [], isLoading: isLoadingRooms } = useQuery({
     queryKey: ['rooms'],
@@ -96,9 +99,20 @@ const Devices = () => {
   const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [wheelCache, setWheelCache] = useState<Record<string, {h: number, s: number}>>({});
 
-  // =========================================
-  // LOGIKA DŹWIĘKU ALARMOWEGO 
-  // =========================================
+  useEffect(() => {
+    if (selectParam && devices.length > 0) {
+      const deviceToSelect = devices.find((d: any) => d.friendly_name === selectParam);
+      if (deviceToSelect) {
+        setSelectedDevice(deviceToSelect);
+        if (deviceToSelect.room_id) {
+          setActiveRoomId(deviceToSelect.room_id);
+        } else {
+          setActiveRoomId(null);
+        }
+      }
+    }
+  }, [selectParam, devices]);
+
   const audioCtxRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
@@ -218,6 +232,11 @@ const Devices = () => {
             incoming.countdown = current.countdown; 
           } else {
             incoming.originalCountdown = incoming.countdown;
+            if (incoming.countdown > 0) {
+              sessionStorage.setItem(`countdown_ends_at_${data.friendlyName}`, (Date.now() + incoming.countdown * 1000).toString());
+            } else {
+              sessionStorage.removeItem(`countdown_ends_at_${data.friendlyName}`);
+            }
           }
         }
         
@@ -226,6 +245,16 @@ const Devices = () => {
           [data.friendlyName]: { ...current, ...incoming }
         };
       });
+
+      queryClient.setQueryData(['devices'], (oldData: any) => {
+        if (!oldData) return oldData;
+        return oldData.map((d: any) => 
+          d.friendly_name === data.friendlyName 
+            ? { ...d, last_payload: { ...d.last_payload, ...data.payload } } 
+            : d
+        );
+      });
+
     });
     socket.on('device_list_updated', () => queryClient.invalidateQueries({ queryKey: ['devices'] }));
     return () => { 
@@ -241,7 +270,21 @@ const Devices = () => {
         const next = { ...prev };
         devices.forEach(d => {
           if (d.last_payload && !next[d.friendly_name]) {
-            next[d.friendly_name] = d.last_payload;
+            const payload = { ...d.last_payload };
+            
+            const savedEnd = sessionStorage.getItem(`countdown_ends_at_${d.friendly_name}`);
+            if (savedEnd && payload.countdown > 0) {
+              const remaining = Math.round((parseInt(savedEnd) - Date.now()) / 1000);
+              if (remaining > 0) {
+                payload.countdown = remaining;
+                payload.originalCountdown = d.last_payload.countdown;
+              } else {
+                payload.countdown = 0;
+                sessionStorage.removeItem(`countdown_ends_at_${d.friendly_name}`);
+              }
+            }
+            
+            next[d.friendly_name] = payload;
             hasChanges = true;
           }
         });
@@ -313,9 +356,23 @@ const Devices = () => {
 
       if (newPayload.countdown !== undefined) {
         newPayload.originalCountdown = newPayload.countdown;
+        if (newPayload.countdown > 0) {
+          sessionStorage.setItem(`countdown_ends_at_${friendlyName}`, (Date.now() + newPayload.countdown * 1000).toString());
+        } else {
+          sessionStorage.removeItem(`countdown_ends_at_${friendlyName}`);
+        }
       }
       
       return { ...prev, [friendlyName]: { ...current, ...newPayload } };
+    });
+
+    queryClient.setQueryData(['devices'], (oldData: any) => {
+      if (!oldData) return oldData;
+      return oldData.map((d: any) => 
+        d.friendly_name === friendlyName 
+          ? { ...d, last_payload: { ...d.last_payload, ...payload } } 
+          : d
+      );
     });
 
     const key = `${friendlyName}_cmd`;
@@ -330,13 +387,27 @@ const Devices = () => {
     const key = `${friendlyName}_cmd`;
     if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key]);
 
+    let newState = "ON";
+
     setLocalLiveData(prev => {
       const current = prev[friendlyName] || {};
-      const newState = current.state === "ON" ? "OFF" : "ON";
+      newState = current.state === "ON" ? "OFF" : "ON";
       return { ...prev, [friendlyName]: { ...current, state: newState } };
     });
 
-    sendCommand(friendlyName, { state: 'TOGGLE' });
+    queryClient.setQueryData(['devices'], (oldData: any) => {
+      if (!oldData) return oldData;
+      return oldData.map((d: any) => 
+        d.friendly_name === friendlyName 
+          ? { ...d, last_payload: { ...d.last_payload, state: newState } } 
+          : d
+      );
+    });
+
+    debounceRefs.current[key] = setTimeout(() => {
+      axios.post(`${API_URL}/devices/${friendlyName}/set`, { state: 'TOGGLE' })
+        .catch(() => toast.error(`Błąd sterowania: ${friendlyName}`));
+    }, 250);
   };
 
   const handleDelete = async (friendlyName: string) => {
@@ -364,9 +435,6 @@ const Devices = () => {
     }
   };
 
-  // ==========================================
-  // ZARZĄDZANIE POKOJAMI
-  // ==========================================
   const handleAddRoom = async () => {
     if (!newRoomName.trim()) return;
     try {
@@ -483,7 +551,6 @@ const Devices = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_400px] gap-6">
         
-        {/* === LEWY PANEL: LISTA POKOJÓW === */}
         <GlassCard className="p-3 h-fit flex flex-col gap-2">
           <ul className="space-y-1">
             {displayRooms.map((r) => (
@@ -507,7 +574,6 @@ const Devices = () => {
                       {r.count}
                     </span>
                     
-                    {/* Ikona usuwania ukryta wewnątrz aktywnego przycisku */}
                     {r.id === activeRoomId && r.id !== null && (
                       <div
                         onClick={(e) => {
@@ -515,7 +581,6 @@ const Devices = () => {
                           setRoomToDelete({ id: r.id, name: r.name });
                         }}
                         className="flex items-center justify-center p-1.5 -mr-1.5 rounded-lg bg-black/10 hover:bg-black/20 dark:bg-white/10 dark:hover:bg-white/20 transition-colors"
-                        title="Delete room"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </div>
@@ -537,7 +602,6 @@ const Devices = () => {
           </div>
         </GlassCard>
 
-        {/* === ŚRODKOWY PANEL: KAFELKI URZĄDZEŃ === */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 content-start">
           {isLoadingDevices || isLoadingRooms ? (
             <p className="col-span-2 text-center py-10 text-muted-foreground">Loading devices...</p>
@@ -587,7 +651,7 @@ const Devices = () => {
                 const hum = dData.humidity ?? 0;
                 
                 icon = Thermometer;
-                statusLabel = `${temp}°C`;
+                statusLabel = `${temp}°C · ${hum}%`;
                 statusColor = temp < 20 ? "#3B82F6" : "#F97316"; 
                 livePulse = false;
                 showSwitch = false;
@@ -643,14 +707,16 @@ const Devices = () => {
                   showSwitch={showSwitch}
                   selected={selectedDevice?.id === d.id}
                   onClick={() => setSelectedDevice(d)} 
-                  onToggle={() => handleToggle(d.friendly_name)}
+                  onToggle={(e: any) => {
+                    if (e && e.stopPropagation) e.stopPropagation();
+                    handleToggle(d.friendly_name);
+                  }}
                 />
               );
             })
           )}
         </div>
 
-        {/* === PRAWY PANEL: SZCZEGÓŁY URZĄDZENIA === */}
         {selectedDevice ? (
           <GlassCard variant="strong" className="p-6 h-fit space-y-6 flex flex-col">
             
@@ -1255,8 +1321,8 @@ const Devices = () => {
             
           </GlassCard>
         ) : (
-          <GlassCard className="p-6 h-fit text-center text-sm text-muted-foreground">
-            Select a device to see its controls.
+          <GlassCard className="p-6 text-sm text-muted-foreground flex items-center justify-center">
+            <p>Select a device to see its controls and details.</p>
           </GlassCard>
         )}
       </div>
@@ -1333,6 +1399,7 @@ const Devices = () => {
             <Input 
               value={newRoomName} 
               onChange={(e) => setNewRoomName(e.target.value)} 
+              placeholder="e.g. Living Room"
               className="bg-background/50 border-white/10 rounded-xl"
               autoFocus
               onKeyDown={(e) => {

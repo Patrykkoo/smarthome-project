@@ -1,333 +1,6 @@
-=========================================
-FILE: apps/backend/src/api.ts
-=========================================
-import express from 'express';
-import cors from 'cors';
-import pool from './db';
-import * as mqtt from 'mqtt';
-import http from 'http';
-import { Server } from 'socket.io';
-
-const app = express();
-const mqttClient = mqtt.connect('mqtt://localhost:1883');
-const server = http.createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: '*',
-        methods: ['GET', 'POST']
-    }
-})
-
-app.use(cors());
-app.use(express.json());
-
-io.on('connection', (socket) => {
-    console.log('New client connected to WebSockets');
-
-    socket.on('disconnect', () => {
-        console.log('Client disconnected from WebSockets');
-    });
-})
-
-export const emitDeviceState = (friendlyName: string, payload: any) => {
-    io.emit('device_state_update', { friendlyName, payload });
-};
-
-export const emitDevicesUpdated = () => {
-    io.emit('device_list_updated');
-};
-
-app.get('/api/devices', async (req, res) => {
-    try {
-        const result = await pool.query(`
-            SELECT d.*, t.payload as last_payload 
-            FROM devices d
-            LEFT JOIN LATERAL (
-                SELECT payload FROM telemetry
-                WHERE device_id = d.id
-                ORDER BY time DESC
-                LIMIT 1
-            ) t ON true
-            ORDER BY d.last_seen DESC
-        `);
-        res.json(result.rows);
-    } catch (error) {
-        console.error('API Error:', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-app.post('/api/bridge/permit_join', (req, res) => {
-    const { permit } = req.body; 
-    
-    const topic = 'zigbee2mqtt/bridge/request/permit_join';
-    const payload = JSON.stringify({ 
-        value: permit, 
-        time: permit ? 180 : 0 
-    });
-
-    mqttClient.publish(topic, payload, (err) => {
-        if (err) {
-            console.error('Permit join error:', err);
-            return res.status(500).json({ error: 'Błąd MQTT' });
-        }
-        res.json({ message: 'Net mode changed', permit });
-    });
-});
-
-app.post('/api/devices/:friendly_name/set', (req, res) => {
-    const { friendly_name } = req.params;
-    const payload = req.body;
-
-    const topic = `zigbee2mqtt/${friendly_name}/set`;
-
-    mqttClient.publish(topic, JSON.stringify(payload), (err) => {
-        if (err) {
-            console.error(`Failed to publish to ${friendly_name}:`, err);
-            return res.status(500).json({ error: 'Comunication Error' });
-        }
-
-        console.log(`Command sent to [${friendly_name}]:`, payload);
-        res.json({ message: 'Successfully sent command', topic, payload });
-    });
-});
-
-app.delete('/api/devices/:friendly_name', async (req, res) => {
-    const { friendly_name } = req.params;
-
-    const topic = 'zigbee2mqtt/bridge/request/device/remove';
-    const payload = JSON.stringify({ id: friendly_name, force: true });
-
-    mqttClient.publish(topic, payload, async (err) => {
-        if (err) {
-            console.error(`Błąd MQTT podczas usuwania ${friendly_name}:`, err);
-            return res.status(500).json({ error: 'Błąd komunikacji MQTT' });
-        }
-
-        try {
-            const devResult = await pool.query('SELECT id FROM devices WHERE friendly_name = $1', [friendly_name]);
-            
-            if (devResult.rows.length > 0) {
-                const deviceId = devResult.rows[0].id;
-                await pool.query('DELETE FROM telemetry WHERE device_id = $1', [deviceId]);
-                await pool.query('DELETE FROM devices WHERE id = $1', [deviceId]);
-            }
-
-            console.log(`Device [${friendly_name}] deleted.`);
-            
-            emitDevicesUpdated();
-            
-            res.json({ message: 'Device deleted' });
-        } catch (dbError) {
-            console.error('Database error during deleting:', dbError);
-            res.status(500).json({ error: 'Database error' });
-        }
-    });
-});
-
-app.put('/api/devices/:friendly_name/rename', (req, res) => {
-    const { friendly_name } = req.params;
-    const { new_name } = req.body;
-
-    if (!new_name || new_name.trim() === '') {
-        return res.status(400).json({ error: 'Name can not be empty' });
-    }
-
-    const topic = 'zigbee2mqtt/bridge/request/device/rename';
-    const payload = JSON.stringify({ 
-        from: friendly_name, 
-        to: new_name 
-    });
-
-    mqttClient.publish(topic, payload, (err) => {
-        if (err) {
-            console.error(`Error while changing device name from ${friendly_name} to ${new_name}:`, err);
-            return res.status(500).json({ error: 'Communication error' });
-        }
-        
-        console.log(`Changing device name: [${friendly_name}] -> [${new_name}]`);
-        res.json({ message: 'Changing device name' });
-    });
-});
-
-export const startAPI = () => {
-    const PORT = 3000;
-    server.listen(PORT, '0.0.0.0', () => {
-        console.log(`API server & WebSocket running on port ${PORT}`);
-    });
-};
-
-=========================================
-FILE: apps/backend/src/index.ts
-=========================================
-import * as mqtt from 'mqtt';
-import pool, { initDB } from './db';
-import { startAPI, emitDeviceState, emitDevicesUpdated } from './api';
-
-const start = async () => {
-    await initDB();
-    startAPI();
-
-    const client = mqtt.connect('mqtt://localhost:1883');
-
-    client.on('connect', () => {
-        console.log('Connected with MQTT');
-        client.subscribe('zigbee2mqtt/bridge/devices')
-        client.subscribe('zigbee2mqtt/#');
-    });
-
-    client.on('message', async (topic, message) => {
-        try {
-            const rawPayload = message.toString();
-            let data: any;
-            
-            // 1. Bezpieczne parsowanie (Z2M często wysyła plain text dla availability)
-            try {
-                data = JSON.parse(rawPayload);
-            } catch (e) {
-                data = { state: rawPayload };
-            }
-            
-            // Dynamiczne wykrywanie urządzeń
-            if (topic === 'zigbee2mqtt/bridge/devices') {
-                for (const device of data) {
-                    if (device.type === 'Coordinator') continue;
-
-                    const id = device.ieee_address;
-                    const friendlyName = device.friendly_name;
-                    const exposes = JSON.stringify(device.definition?.exposes || []);
-
-                    await pool.query(`
-                        INSERT INTO devices (id, friendly_name, exposes, last_seen)
-                        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-                        ON CONFLICT (id) DO UPDATE 
-                        SET friendly_name = EXCLUDED.friendly_name, 
-                            exposes = EXCLUDED.exposes,
-                            last_seen = CURRENT_TIMESTAMP;
-                    `, [id, friendlyName, exposes]);
-                }
-
-                console.log('Devices updated');
-                emitDevicesUpdated();
-                return;
-            }
-
-            if (topic.startsWith('zigbee2mqtt/bridge')) return;
-
-            // 2. Analiza tematu (czy to główny temat czy /availability)
-            let friendlyName = topic.replace('zigbee2mqtt/', '');
-            let isAvailability = false;
-
-            if (friendlyName.endsWith('/availability')) {
-                friendlyName = friendlyName.replace('/availability', '');
-                isAvailability = true;
-            }
-
-            const deviceResult = await pool.query(
-                'SELECT id FROM devices WHERE friendly_name = $1',
-                [friendlyName]
-            );
-
-            if (deviceResult.rows.length > 0) {
-                const deviceId = deviceResult.rows[0].id;
-                
-                // 3. Pobranie ostatniej telemetrii, by nie zgubić danych (np. czy to gniazdko)
-                const lastTelemetry = await pool.query(`
-                    SELECT payload FROM telemetry WHERE device_id = $1 ORDER BY time DESC LIMIT 1
-                `, [deviceId]);
-                
-                // pg automatycznie parsuje typ JSONB do obiektu
-                let mergedPayload = lastTelemetry.rows.length > 0 ? lastTelemetry.rows[0].payload : {};
-
-                if (isAvailability) {
-                    const stateValue = data.state || data;
-                    const availabilityStatus = typeof stateValue === 'string' ? stateValue.toLowerCase() : 'offline';
-                    
-                    mergedPayload = { 
-                        ...mergedPayload, 
-                        availability: availabilityStatus,
-                        state: availabilityStatus === 'offline' ? 'OFFLINE' : mergedPayload.state 
-                    };
-                } else {
-                    mergedPayload = { ...mergedPayload, ...data, availability: 'online' };
-                    
-                    // Czyszczenie fałszywego statusu offline jeśli urządzenie wysłało nowy payload
-                    if (mergedPayload.state === 'OFFLINE' || mergedPayload.state === 'offline') {
-                        delete mergedPayload.state;
-                        // Przywrócenie payloadu do poprzedniego stanu
-                        if (data.state !== undefined) mergedPayload.state = data.state;
-                    }
-                }
-
-                // 4. Zapis połączonego payloadu
-                await pool.query(`
-                    INSERT INTO telemetry (time, device_id, payload)
-                    VALUES (CURRENT_TIMESTAMP, $1, $2)
-                `, [deviceId, JSON.stringify(mergedPayload)]);
-
-                if (isAvailability) {
-                    console.log(`[Availability] Device [${friendlyName}] is now ${mergedPayload.availability}`);
-                }
-                
-                emitDeviceState(friendlyName, mergedPayload);
-            }
-        } catch (error) {
-            console.error(`Error processing message: ${topic}`, error);
-        }
-    });
-};
-
-start();
-
-=========================================
-FILE: apps/backend/src/db.ts
-=========================================
-import { Pool } from 'pg';
-
-const pool = new Pool({
-    user: 'smarthome_user',
-    host: 'localhost',
-    database: 'smarthome_db',
-    password: 'haslo123',
-    port: 5432,
-});
-
-export const initDB = async () => {
-    const client = await pool.connect();
-    try {
-        console.log('Initializing database');
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS devices (
-                id VARCHAR(255) PRIMARY KEY,
-                friendly_name VARCHAR(255) NOT NULL,
-                exposes JSONB,
-                last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
-
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS telemetry (
-                time TIMESTAMPTZ NOT NULL,
-                device_id VARCHAR(255) REFERENCES devices(id) ON DELETE CASCADE,
-                payload JSONB NOT NULL
-            );
-        `);
-
-        await client.query(`
-            SELECT create_hypertable('telemetry', 'time', if_not_exists => TRUE);
-        `);
-    } catch (error) {
-        console.error('Initialization error:', error);
-    } finally {
-        client.release();
-    }
-};
-
-export default pool;
-
-=========================================
-FILE: apps/web/tailwind.config.ts
-=========================================
+========================================
+PLIK: ./apps/web/tailwind.config.ts
+========================================
 import type { Config } from "tailwindcss";
 
 export default {
@@ -426,15 +99,9 @@ export default {
 } satisfies Config;
 
 
-=========================================
-FILE: apps/web/.env
-=========================================
-VITE_API_URL=http://192.168.0.66:3000/api
-VITE_WS_URL=ws://192.168.0.66:3000
-
-=========================================
-FILE: apps/web/src/hooks/use-mobile.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/hooks/use-mobile.tsx
+========================================
 import * as React from "react";
 
 const MOBILE_BREAKPOINT = 768;
@@ -456,9 +123,9 @@ export function useIsMobile() {
 }
 
 
-=========================================
-FILE: apps/web/src/hooks/use-websockets.ts
-=========================================
+========================================
+PLIK: ./apps/web/src/hooks/use-websockets.ts
+========================================
 import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 
@@ -499,9 +166,9 @@ export const useWebSockets = () => {
   return { socket };
 };
 
-=========================================
-FILE: apps/web/src/hooks/use-toast.ts
-=========================================
+========================================
+PLIK: ./apps/web/src/hooks/use-toast.ts
+========================================
 import * as React from "react";
 
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast";
@@ -690,9 +357,9 @@ function useToast() {
 export { useToast, toast };
 
 
-=========================================
-FILE: apps/web/src/hooks/use-devices.ts
-=========================================
+========================================
+PLIK: ./apps/web/src/hooks/use-devices.ts
+========================================
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 
@@ -704,6 +371,8 @@ export interface Device {
     last_seen: string;
     exposes: any;
     last_payload?: any;
+    room_id?: number | null;
+    room_name?: string | null;
 }
 
 const fetchDevices = async (): Promise<Device[]> => {
@@ -718,221 +387,9 @@ export const useDevices = () => {
     });
 };
 
-=========================================
-FILE: apps/web/src/index.css
-=========================================
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Livora design system — liquid glass on white. All colors HSL. */
-
-@layer base {
-  :root {
-    /* Brand palette (HSL)
-       #F0F1F3 → 220 13% 95%
-       #C4D3D9 → 198 22% 81%
-       #9DB9C8 → 203 28% 70%
-       #89B1E1 → 212 58% 71%
-       #25272B → 222 8% 16%
-    */
-    --background: 220 13% 95%;
-    --foreground: 222 8% 16%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 222 8% 16%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 8% 16%;
-
-    --primary: 222 8% 16%;
-    --primary-foreground: 220 13% 97%;
-
-    --secondary: 198 22% 81%;
-    --secondary-foreground: 222 8% 16%;
-
-    --muted: 220 13% 92%;
-    --muted-foreground: 222 6% 40%;
-
-    --accent: 212 58% 71%;
-    --accent-foreground: 222 8% 16%;
-
-    --brand-mist: 198 22% 81%;
-    --brand-steel: 203 28% 70%;
-    --brand-sky: 212 58% 71%;
-    --brand-graphite: 222 8% 16%;
-
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 220 14% 88%;
-    --input: 220 14% 88%;
-    --ring: 222 8% 16%;
-
-    --radius: 1.5rem;
-
-    /* Glass tokens */
-    --glass-bg: 0 0% 100%;
-    --glass-border: 0 0% 100%;
-    --glass-shadow: 220 30% 30%;
-
-    /* Sidebar */
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 222 8% 16%;
-    --sidebar-primary: 222 8% 16%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 13% 94%;
-    --sidebar-accent-foreground: 222 8% 16%;
-    --sidebar-border: 220 14% 90%;
-    --sidebar-ring: 212 58% 71%;
-  }
-
-  .dark {
-    --background: 222 12% 8%;
-    --foreground: 220 13% 95%;
-    --card: 222 12% 12%;
-    --card-foreground: 220 13% 95%;
-    --popover: 222 12% 12%;
-    --popover-foreground: 220 13% 95%;
-    --primary: 220 13% 95%;
-    --primary-foreground: 222 12% 8%;
-    --secondary: 222 10% 18%;
-    --secondary-foreground: 220 13% 95%;
-    --muted: 222 10% 16%;
-    --muted-foreground: 220 8% 65%;
-    --accent: 212 58% 71%;
-    --accent-foreground: 222 12% 8%;
-    --destructive: 0 62% 40%;
-    --destructive-foreground: 220 13% 95%;
-    --border: 222 10% 20%;
-    --input: 222 10% 20%;
-    --ring: 212 58% 71%;
-    --glass-bg: 222 12% 16%;
-    --glass-border: 220 13% 95%;
-    --glass-shadow: 0 0% 0%;
-    --sidebar-background: 222 12% 10%;
-    --sidebar-foreground: 220 13% 95%;
-    --sidebar-primary: 212 58% 71%;
-    --sidebar-primary-foreground: 222 12% 8%;
-    --sidebar-accent: 222 10% 16%;
-    --sidebar-accent-foreground: 220 13% 95%;
-    --sidebar-border: 222 10% 20%;
-    --sidebar-ring: 212 58% 71%;
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-
-  html {
-    font-family: "Manrope", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  }
-
-  body {
-    @apply bg-background text-foreground antialiased;
-    font-feature-settings: "ss01", "cv11";
-  }
-
-  h1, h2, h3, h4, h5, h6, .font-display {
-    font-family: "Sora", ui-sans-serif, system-ui, sans-serif;
-    letter-spacing: -0.02em;
-  }
-}
-
-@layer components {
-  /* Liquid glass surface */
-  .glass {
-    background: linear-gradient(
-      180deg,
-      hsl(var(--glass-bg) / 0.72) 0%,
-      hsl(var(--glass-bg) / 0.55) 100%
-    );
-    backdrop-filter: blur(28px) saturate(180%);
-    -webkit-backdrop-filter: blur(28px) saturate(180%);
-    border: 1px solid hsl(var(--glass-border) / 0.6);
-    box-shadow:
-      0 1px 0 0 hsl(var(--glass-border) / 0.8) inset,
-      0 20px 50px -20px hsl(var(--glass-shadow) / 0.18),
-      0 8px 24px -12px hsl(var(--glass-shadow) / 0.12);
-  }
-
-  .glass-strong {
-    background: linear-gradient(
-      180deg,
-      hsl(var(--glass-bg) / 0.88) 0%,
-      hsl(var(--glass-bg) / 0.7) 100%
-    );
-    backdrop-filter: blur(40px) saturate(200%);
-    -webkit-backdrop-filter: blur(40px) saturate(200%);
-    border: 1px solid hsl(var(--glass-border) / 0.7);
-    box-shadow:
-      0 1px 0 0 hsl(var(--glass-border) / 0.9) inset,
-      0 24px 60px -20px hsl(var(--glass-shadow) / 0.22);
-  }
-
-  .glass-hover {
-    @apply transition-all duration-300 ease-out;
-  }
-  .glass-hover:hover {
-    transform: translateY(-2px);
-    box-shadow:
-      0 1px 0 0 hsl(var(--glass-border) / 0.9) inset,
-      0 28px 60px -20px hsl(var(--glass-shadow) / 0.25),
-      0 12px 28px -12px hsl(var(--glass-shadow) / 0.18);
-  }
-
-  /* Ambient background blobs (under glass) */
-  .ambient-bg {
-    position: relative;
-    isolation: isolate;
-    overflow: hidden;
-  }
-  .ambient-bg::before,
-  .ambient-bg::after {
-    content: "";
-    position: absolute;
-    z-index: -1;
-    border-radius: 9999px;
-    filter: blur(80px);
-    opacity: 0.55;
-    pointer-events: none;
-  }
-  .ambient-bg::before {
-    width: 520px;
-    height: 520px;
-    top: -120px;
-    left: -80px;
-    background: radial-gradient(circle, hsl(var(--brand-sky) / 0.7), transparent 70%);
-  }
-  .ambient-bg::after {
-    width: 620px;
-    height: 620px;
-    bottom: -180px;
-    right: -120px;
-    background: radial-gradient(circle, hsl(var(--brand-mist) / 0.8), transparent 70%);
-  }
-
-  .ambient-bg .blob-extra {
-    position: absolute;
-    z-index: -1;
-    width: 380px;
-    height: 380px;
-    border-radius: 9999px;
-    filter: blur(90px);
-    opacity: 0.45;
-    background: radial-gradient(circle, hsl(var(--brand-steel) / 0.75), transparent 70%);
-    top: 40%;
-    left: 45%;
-    pointer-events: none;
-  }
-}
-
-
-=========================================
-FILE: apps/web/src/App.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/App.tsx
+========================================
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -980,9 +437,9 @@ const App = () => (
 
 export default App;
 
-=========================================
-FILE: apps/web/src/lib/utils.ts
-=========================================
+========================================
+PLIK: ./apps/web/src/lib/utils.ts
+========================================
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -991,9 +448,9 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 
-=========================================
-FILE: apps/web/src/lib/color.ts
-=========================================
+========================================
+PLIK: ./apps/web/src/lib/color.ts
+========================================
 // Color helpers for Livora device controls.
 
 export function hexToHsl(hex: string): { h: number; s: number; l: number } {
@@ -1049,9 +506,9 @@ export function kelvinToHex(kelvin: number): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
 }
 
-=========================================
-FILE: apps/web/src/App.old.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/App.old.tsx
+========================================
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
@@ -1367,9 +824,9 @@ function App() {
 
 export default App;
 
-=========================================
-FILE: apps/web/src/pages/Scenes.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/pages/Scenes.tsx
+========================================
 import { useState } from "react";
 import { Sun, Sparkles, PartyPopper, Moon, Film, Coffee, Plus, Clock } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
@@ -1474,9 +931,9 @@ const Scenes = () => {
 export default Scenes;
 
 
-=========================================
-FILE: apps/web/src/pages/Energy.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/pages/Energy.tsx
+========================================
 import { useState } from "react";
 import { Lightbulb, Snowflake, Camera, Speaker, Tv, Wind } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
@@ -1647,167 +1104,546 @@ const Energy = () => {
 export default Energy;
 
 
-=========================================
-FILE: apps/web/src/pages/Index.tsx
-=========================================
-import { useState } from "react";
+========================================
+PLIK: ./apps/web/src/pages/Index.tsx
+========================================
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Cloud,
   Sun,
   Thermometer,
   Zap,
-  Camera,
   Lightbulb,
-  Speaker,
-  Snowflake,
   Sparkles,
   Moon,
   PartyPopper,
-  Wind,
+  Droplets,
+  ShieldAlert,
+  Lock,
+  Plug,
+  Sunrise,
+  Sunset,
+  CloudRain,
+  CloudLightning,
+  CloudSnow,
+  TrendingDown,
+  TrendingUp
 } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
 import { DeviceTile } from "@/components/livora/DeviceTile";
 import { RoomFilter } from "@/components/livora/RoomFilter";
-import { ScenePill } from "@/components/livora/ScenePill";
-import { MetricBadge } from "@/components/livora/MetricBadge";
 
-const rooms = ["All", "Living room", "Kitchen", "Bedroom", "Bathroom"];
+import { useDevices } from "@/hooks/use-devices";
+import { useWebSockets } from "@/hooks/use-websockets";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
+import { toast } from "sonner";
+import { hexToHsl, hslToHex, kelvinToHex } from "@/lib/color";
+import { cn } from "@/lib/utils";
 
-const allDevices = [
-  { id: 1, icon: Lightbulb, name: "Ambient Lights", room: "Living room", value: "78", unit: "%", enabled: true, accent: true },
-  { id: 2, icon: Snowflake, name: "Climate Control", room: "Living room", value: "21.5", unit: "°C", enabled: true },
-  { id: 3, icon: Camera, name: "Front Camera", room: "Entrance", value: "Live", enabled: true },
-  { id: 4, icon: Speaker, name: "Bose Soundbar", room: "Living room", value: "32", unit: "%", enabled: false },
-  { id: 5, icon: Lightbulb, name: "Kitchen Strip", room: "Kitchen", value: "60", unit: "%", enabled: true },
-  { id: 6, icon: Wind, name: "Bedroom Fan", room: "Bedroom", value: "Auto", enabled: false },
-];
+const API_URL = import.meta.env.VITE_API_URL;
+
+const lightStatusLabel = (isOn: boolean, brightness: number, colorMode: string, kelvin?: number, hexColor?: string) => {
+  if (!isOn) return "Off";
+  let mode = "Custom";
+  if (colorMode === "color_temp" || (kelvin && colorMode !== "hs" && colorMode !== "xy")) {
+    if (kelvin != null) mode = kelvin >= 4500 ? "Cold" : kelvin >= 3000 ? "Neutral" : "Warm";
+  } else if (hexColor) {
+    const { s, l } = hexToHsl(hexColor);
+    if (s < 12 || l > 92) mode = "White";
+  }
+  return `${mode} · ${brightness}%`;
+};
+
+const getWeatherInfo = (code: number) => {
+  if (code === 0) return { label: "Clear sky", Icon: Sun };
+  if (code >= 1 && code <= 3) return { label: "Partly cloudy", Icon: Cloud };
+  if (code === 45 || code === 48) return { label: "Foggy", Icon: Cloud };
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return { label: "Rainy", Icon: CloudRain };
+  if (code >= 71 && code <= 77) return { label: "Snowy", Icon: CloudSnow };
+  if (code >= 95) return { label: "Stormy", Icon: CloudLightning };
+  return { label: "Unknown", Icon: Cloud };
+};
+
+const generateSparkline = (data: number[], width: number, height: number) => {
+  if (!data || data.length === 0) return "";
+  
+  const min = 0; 
+  const max = Math.max(...data, 10); 
+  const range = max - min;
+  const stepX = width / Math.max(data.length - 1, 1);
+
+  return data.map((val, i) => {
+    const x = i * stepX;
+    const y = height - ((val - min) / range) * (height - 10) - 5; 
+    
+    if (i === 0) return `M ${x},${y}`;
+    
+    const prevX = (i - 1) * stepX;
+    const prevY = height - ((data[i - 1] - min) / range) * (height - 10) - 5;
+    const cpX1 = prevX + stepX / 2;
+    const cpX2 = x - stepX / 2;
+    
+    return `C ${cpX1},${prevY} ${cpX2},${y} ${x},${y}`;
+  }).join(" ");
+};
 
 const Dashboard = () => {
-  const [activeRoom, setActiveRoom] = useState("All");
+  const navigate = useNavigate();
   const [activeScene, setActiveScene] = useState("Natural");
-  const [devices, setDevices] = useState(allDevices);
+  const [activeRoomName, setActiveRoomName] = useState("All");
+  const [currentTime, setCurrentTime] = useState(new Date());
 
-  const toggle = (id: number) =>
-    setDevices((prev) => prev.map((d) => (d.id === id ? { ...d, enabled: !d.enabled } : d)));
+  const { data: devices = [], isLoading: isLoadingDevices } = useDevices();
+  const { data: rooms = [] } = useQuery({
+    queryKey: ['rooms'],
+    queryFn: async () => {
+      const res = await axios.get(`${API_URL}/rooms`);
+      return res.data;
+    }
+  });
 
-  const filtered = activeRoom === "All" ? devices : devices.filter((d) => d.room === activeRoom);
+  const { data: weatherData } = useQuery({
+    queryKey: ['weather'],
+    queryFn: async () => {
+      const res = await axios.get('https://api.open-meteo.com/v1/forecast?latitude=53.4289&longitude=14.553&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code&daily=sunrise,sunset&timezone=auto');
+      return res.data;
+    },
+    refetchInterval: 15 * 60 * 1000 
+  });
+
+  const { data: energyStats } = useQuery({
+    queryKey: ['energyStats'],
+    queryFn: async () => {
+      const res = await axios.get(`${API_URL}/energy/stats`);
+      return res.data;
+    },
+    refetchInterval: 60 * 1000 
+  });
+
+  const { socket } = useWebSockets();
+  const queryClient = useQueryClient();
+  const debounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [localLiveData, setLocalLiveData] = useState<Record<string, any>>({});
+  const [wheelCache] = useState<Record<string, {h: number, s: number}>>({});
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    socket.on('device_state_update', (data: any) => {
+      setLocalLiveData(prev => {
+        const current = prev[data.friendlyName] || {};
+        const incoming = { ...data.payload };
+        
+        if (incoming.countdown !== undefined) {
+          if (incoming.countdown === current.originalCountdown && current.countdown > 0) {
+            incoming.countdown = current.countdown; 
+          } else {
+            incoming.originalCountdown = incoming.countdown;
+            if (incoming.countdown > 0) {
+              sessionStorage.setItem(`countdown_ends_at_${data.friendlyName}`, (Date.now() + incoming.countdown * 1000).toString());
+            } else {
+              sessionStorage.removeItem(`countdown_ends_at_${data.friendlyName}`);
+            }
+          }
+        }
+        return { ...prev, [data.friendlyName]: { ...current, ...incoming } };
+      });
+
+      queryClient.setQueryData(['devices'], (old: any) => {
+        if (!old) return old;
+        return old.map((d: any) => d.friendly_name === data.friendlyName ? { ...d, last_payload: { ...d.last_payload, ...data.payload } } : d);
+      });
+    });
+
+    socket.on('device_list_updated', () => queryClient.invalidateQueries({ queryKey: ['devices'] }));
+    return () => { socket.off('device_state_update'); socket.off('device_list_updated'); };
+  }, [socket, queryClient]);
+
+  useEffect(() => {
+    if (devices.length > 0) {
+      setLocalLiveData(prev => {
+        let hasChanges = false;
+        const next = { ...prev };
+        devices.forEach(d => {
+          if (d.last_payload && !next[d.friendly_name]) {
+            const payload = { ...d.last_payload };
+            const savedEnd = sessionStorage.getItem(`countdown_ends_at_${d.friendly_name}`);
+            if (savedEnd && payload.countdown > 0) {
+              const remaining = Math.round((parseInt(savedEnd) - Date.now()) / 1000);
+              if (remaining > 0) {
+                payload.countdown = remaining;
+                payload.originalCountdown = d.last_payload.countdown;
+              } else {
+                payload.countdown = 0;
+                sessionStorage.removeItem(`countdown_ends_at_${d.friendly_name}`);
+              }
+            }
+            next[d.friendly_name] = payload;
+            hasChanges = true;
+          }
+        });
+        return hasChanges ? next : prev;
+      });
+    }
+  }, [devices]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setLocalLiveData(prev => {
+        let hasChanges = false;
+        const next = { ...prev };
+        Object.keys(next).forEach(key => {
+          if (next[key]?.countdown > 0) {
+            next[key] = { ...next[key], countdown: Math.max(0, next[key].countdown - 1) };
+            hasChanges = true;
+          }
+        });
+        return hasChanges ? next : prev;
+      });
+    }, 1000); 
+    return () => clearInterval(id);
+  }, []);
+
+  const handleToggle = (friendlyName: string) => {
+    const key = `${friendlyName}_cmd`;
+    if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key]);
+
+    let newState = "ON";
+    setLocalLiveData(prev => {
+      const current = prev[friendlyName] || {};
+      newState = current.state === "ON" ? "OFF" : "ON";
+      return { ...prev, [friendlyName]: { ...current, state: newState } };
+    });
+
+    queryClient.setQueryData(['devices'], (old: any) => {
+      if (!old) return old;
+      return old.map((d: any) => d.friendly_name === friendlyName ? { ...d, last_payload: { ...d.last_payload, state: newState } } : d);
+    });
+
+    debounceRefs.current[key] = setTimeout(() => {
+      axios.post(`${API_URL}/devices/${friendlyName}/set`, { state: 'TOGGLE' })
+        .catch(() => toast.error(`Błąd sterowania: ${friendlyName}`));
+    }, 250);
+  };
+
+  const formatRemaining = (sec: number) => {
+    if (sec <= 0) return "Disabled";
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+    return `${m}:${String(s).padStart(2, "0")}`; 
+  };
+
+  const roomNames = ["All", ...rooms.map((r: any) => r.name)];
+  if (devices.some((d: any) => !d.room_id)) roomNames.push("Unassigned");
+
+  const sceneNames = ["Natural", "Relax", "Party", "Goodnight"];
+
+  const filteredDevices = activeRoomName === "All" 
+    ? devices 
+    : devices.filter((d: any) => (d.room_name || "Unassigned") === activeRoomName);
+
+  let weatherTemp = "--", weatherFeels = "--", weatherHum = "--", WeatherIcon = Cloud, weatherLabel = "Loading data...", sunLabel = "Sunset", sunTimeStr = "--:--", sunSubLabel = "Loading...", SunEventIcon = Sunset, locationName = "Szczecin";
+  
+  if (weatherData && weatherData.current) {
+    weatherTemp = weatherData.current.temperature_2m.toFixed(1);
+    weatherFeels = weatherData.current.apparent_temperature.toFixed(1);
+    weatherHum = weatherData.current.relative_humidity_2m;
+    const info = getWeatherInfo(weatherData.current.weather_code);
+    WeatherIcon = info.Icon; weatherLabel = info.label;
+    
+    const sunrise = new Date(weatherData.daily.sunrise[0]);
+    const sunset = new Date(weatherData.daily.sunset[0]);
+    const tomorrowSunrise = new Date(weatherData.daily.sunrise[1]);
+    
+    let targetDate;
+    if (currentTime < sunrise) { 
+      sunLabel = "Sunrise"; 
+      sunTimeStr = sunrise.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); 
+      SunEventIcon = Sunrise; 
+      targetDate = sunrise; 
+    }
+    else if (currentTime < sunset) { 
+      sunLabel = "Sunset"; 
+      sunTimeStr = sunset.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); 
+      SunEventIcon = Sunset; 
+      targetDate = sunset; 
+    }
+    else { 
+      sunLabel = "Sunrise"; 
+      sunTimeStr = tomorrowSunrise.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); 
+      SunEventIcon = Sunrise; 
+      targetDate = tomorrowSunrise; 
+    }
+
+    if (targetDate) {
+      const diffMins = Math.floor((targetDate.getTime() - currentTime.getTime()) / 60000);
+      const hours = Math.floor(diffMins / 60);
+      const mins = diffMins % 60;
+      const timeString = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+      sunSubLabel = (currentTime >= sunrise && currentTime < sunset) ? `Daylight for next ${timeString}` : `Darkness for next ${timeString}`;
+    }
+  }
+
+  const climateDevice = devices.find((d: any) => {
+    const live = localLiveData[d.friendly_name] || d.last_payload || {};
+    return live.temperature !== undefined;
+  });
+
+  let indoorTemp = "--", indoorHum = "No humidity data", indoorRoom = "No sensor found";
+  
+  if (climateDevice) {
+    const live = localLiveData[climateDevice.friendly_name] || climateDevice.last_payload || {};
+    indoorTemp = live.temperature !== undefined ? live.temperature.toFixed(1) : "--";
+    indoorHum = live.humidity !== undefined ? `${live.humidity}% humidity` : 'No humidity data';
+    indoorRoom = climateDevice.room_name || "Unassigned";
+  }
+
+  const currentTotalPower = devices.reduce((sum: number, d: any) => {
+    const live = localLiveData[d.friendly_name] || d.last_payload || {};
+    const isOffline = live.state === 'OFFLINE' || live.state === 'offline' || live.availability === 'offline';
+    if (!isOffline && live.state === "ON" && live.power) {
+      return sum + live.power;
+    }
+    return sum;
+  }, 0);
+
+  const todayKwh = energyStats?.todayKwh ? parseFloat(energyStats.todayKwh) : 0;
+  const yesterdayKwh = energyStats?.yesterdayKwh ? parseFloat(energyStats.yesterdayKwh) : 0;
+  const isUsageHigher = todayKwh >= yesterdayKwh;
+  const percentageDiff = yesterdayKwh > 0 
+    ? Math.abs(Math.round(((todayKwh - yesterdayKwh) / yesterdayKwh) * 100))
+    : (todayKwh > 0 ? 100 : 0);
+
+  const sparklineData = energyStats?.history60m && energyStats.history60m.length > 0 
+    ? energyStats.history60m 
+    : Array(60).fill(0);
+    
+  const svgPath = generateSparkline(sparklineData, 200, 60);
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto">
       <h1 className="sr-only">Livora dashboard</h1>
 
-      {/* Hero + energy strip */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <GlassCard variant="strong" className="lg:col-span-2 p-7 relative overflow-hidden">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Cloud className="h-4 w-4" />
-            Partly cloudy · Warsaw
-          </div>
-          <div className="mt-4 flex items-end gap-4">
-            <p className="font-display text-7xl font-semibold leading-none">16.7°</p>
-            <div className="pb-2 text-sm text-muted-foreground">
-              <p>Feels like 15°</p>
-              <p>Humidity 62%</p>
+        <GlassCard variant="strong" className="lg:col-span-2 p-7 relative overflow-hidden flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <WeatherIcon className="h-4 w-4" />
+              {weatherLabel} · {locationName}
+            </div>
+            <div className="mt-4 flex items-end gap-4">
+              <p className="font-display text-7xl font-semibold leading-none">{weatherTemp}°</p>
+              <div className="pb-2 text-sm text-muted-foreground">
+                <p>Feels like {weatherFeels}°</p>
+                <p>Humidity {weatherHum}%</p>
+              </div>
             </div>
           </div>
-
           <div className="mt-8 grid grid-cols-2 gap-4">
             <div className="rounded-2xl bg-background/50 p-4">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-                <Thermometer className="h-3.5 w-3.5" /> Living room
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground truncate">
+                <Thermometer className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{indoorRoom}</span>
               </div>
-              <p className="mt-2 font-display text-2xl font-semibold">21.5°C</p>
-              <p className="text-xs text-muted-foreground">Cooling mode active</p>
+              <p className="mt-2 font-display text-2xl font-semibold">{indoorTemp}°C</p>
+              <p className="text-xs text-muted-foreground truncate">{indoorHum}</p>
             </div>
             <div className="rounded-2xl bg-background/50 p-4">
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-                <Sun className="h-3.5 w-3.5" /> Sunset
+                <SunEventIcon className="h-3.5 w-3.5" /> {sunLabel}
               </div>
-              <p className="mt-2 font-display text-2xl font-semibold">19:47</p>
-              <p className="text-xs text-muted-foreground">Lights warm at 19:30</p>
+              <p className="mt-2 font-display text-2xl font-semibold">{sunTimeStr}</p>
+              <p className="text-xs text-muted-foreground">{sunSubLabel}</p>
             </div>
           </div>
         </GlassCard>
 
-        <GlassCard className="p-6 flex flex-col">
+        <GlassCard className="p-6 flex flex-col relative overflow-hidden group">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">Energy now</p>
-            <MetricBadge value={-12} inverted />
+            <p className="text-sm font-medium flex items-center gap-2">
+              <Zap className="h-4 w-4 text-primary" /> Energy today
+            </p>
+            <div className={cn(
+              "flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider",
+              isUsageHigher ? "bg-destructive/10 text-destructive" : "bg-emerald-500/10 text-emerald-500"
+            )}>
+              {isUsageHigher ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+              <span>{percentageDiff}%</span>
+            </div>
           </div>
-          <p className="mt-2 font-display text-5xl font-semibold leading-none">
-            65.32<span className="ml-1 text-base font-medium text-muted-foreground">kW/h</span>
-          </p>
+          
+          <div className="mt-2">
+            <p className="font-display text-5xl font-semibold tracking-tight">
+              {todayKwh.toFixed(2)}<span className="text-xl text-muted-foreground font-medium ml-1">kWh</span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+              Live power: <span className="font-medium text-foreground">{Math.round(currentTotalPower)} W</span>
+            </p>
+          </div>
 
-          {/* Sparkline */}
-          <svg viewBox="0 0 200 60" className="mt-6 w-full h-16">
-            <defs>
-              <linearGradient id="spark" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="hsl(var(--brand-sky))" stopOpacity="0.5" />
-                <stop offset="100%" stopColor="hsl(var(--brand-sky))" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M0,40 C20,30 30,45 50,35 C70,25 90,40 110,28 C130,16 150,32 170,22 C185,15 195,20 200,18 L200,60 L0,60 Z"
-              fill="url(#spark)"
-            />
-            <path
-              d="M0,40 C20,30 30,45 50,35 C70,25 90,40 110,28 C130,16 150,32 170,22 C185,15 195,20 200,18"
-              fill="none"
-              stroke="hsl(var(--brand-graphite))"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
+          <div className="mt-6 h-16 w-full relative z-10">
+            <svg viewBox="0 0 200 60" className="w-full h-full overflow-visible" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="sparkline-gradient" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.3" />
+                  <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <path
+                d={`${svgPath} L 200,60 L 0,60 Z`}
+                fill="url(#sparkline-gradient)"
+                className="transition-all duration-1000"
+              />
+              <path
+                d={svgPath}
+                fill="none"
+                stroke="hsl(var(--primary))"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="transition-all duration-1000 drop-shadow-sm"
+              />
+            </svg>
+          </div>
 
-          <div className="mt-auto pt-4 flex items-center gap-2 text-sm text-muted-foreground">
-            <Zap className="h-4 w-4" />
-            Today’s avg lower than yesterday
+          <div className="mt-auto pt-4 border-t border-border/40">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Usage is <span className={cn("font-medium", isUsageHigher && todayKwh > 0 ? "text-destructive" : "text-emerald-500")}>
+                {percentageDiff}% {isUsageHigher ? "higher" : "lower"}
+              </span> than yesterday.
+            </p>
           </div>
         </GlassCard>
       </div>
 
-      {/* Scenes */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="font-display text-xl font-semibold">Quick scenes</h2>
-        <div className="flex flex-wrap gap-2">
-          {[
-            { label: "Natural", icon: Sun },
-            { label: "Relax", icon: Sparkles },
-            { label: "Party", icon: PartyPopper },
-            { label: "Goodnight", icon: Moon },
-          ].map((s) => (
-            <ScenePill
-              key={s.label}
-              icon={s.icon}
-              label={s.label}
-              active={activeScene === s.label}
-              onClick={() => setActiveScene(s.label)}
-            />
-          ))}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4 w-full">
+          <h2 className="font-display text-xl font-semibold shrink-0">Quick scenes</h2>
+          <div className="flex-1 flex justify-end">
+             <RoomFilter rooms={sceneNames} active={activeScene} onChange={setActiveScene} />
+          </div>
         </div>
       </div>
 
-      {/* Rooms + devices */}
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <h2 className="font-display text-xl font-semibold">Devices</h2>
-          <RoomFilter rooms={rooms} active={activeRoom} onChange={setActiveRoom} />
+        <div className="flex items-center justify-between gap-4 w-full">
+          <h2 className="font-display text-xl font-semibold shrink-0">Devices</h2>
+          <div className="flex-1 flex justify-end">
+            <RoomFilter rooms={roomNames} active={activeRoomName} onChange={setActiveRoomName} />
+          </div>
         </div>
-
+        
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map((d) => (
-            <DeviceTile
-              key={d.id}
-              icon={d.icon}
-              name={d.name}
-              room={d.room}
-              value={d.value}
-              unit={d.unit}
-              enabled={d.enabled}
-              accent={d.accent}
-              onToggle={() => toggle(d.id)}
-            />
-          ))}
+          {isLoadingDevices ? (
+            <p className="col-span-4 text-center py-10 text-muted-foreground">Loading devices...</p>
+          ) : filteredDevices.length === 0 ? (
+             <p className="col-span-4 text-center py-10 text-muted-foreground">No devices found in {activeRoomName}.</p>
+          ) : (
+            filteredDevices.map((d: any) => {
+              const dData = localLiveData[d.friendly_name] || {};
+              const isOffline = dData.state === 'OFFLINE' || dData.state === 'offline' || dData.availability === 'offline';
+              
+              const isContactSensor = dData.contact !== undefined || dData.tamper !== undefined;
+              const isWaterLeak = dData.water_leak !== undefined;
+              const isClimateSensor = dData.temperature !== undefined || dData.humidity !== undefined;
+              const isPlug = dData.power !== undefined || dData.current !== undefined || dData.energy !== undefined || dData.consumption !== undefined;
+              
+              const closed = dData.contact ?? true;
+              const dIsOn = (isContactSensor || isWaterLeak || isClimateSensor) ? !isOffline : (dData.state === "ON" && !isOffline);
+
+              let icon = Lightbulb;
+              let statusLabel = "Off";
+              let statusColor = undefined;
+              let iconColor = undefined;
+              let livePulse = false;
+              let showSwitch = true;
+
+              if (isWaterLeak) {
+                const leaked = dData.water_leak === true || dData.water_leak === "true";
+                icon = Droplets;
+                statusLabel = leaked ? "LEAK!" : "Dry";
+                statusColor = leaked ? "#E5484D" : "#7FD4A1";
+                livePulse = leaked;
+                showSwitch = false;
+
+              } else if (isContactSensor) {
+                const tampered = dData.tamper === true || dData.tamper === "true";
+                icon = tampered ? ShieldAlert : Lock;
+                statusLabel = tampered ? "TAMPER!" : (closed ? "Closed" : "Open");
+                statusColor = tampered ? "#E5484D" : (closed ? "#7FD4A1" : "#E5484D");
+                livePulse = tampered;
+                showSwitch = false;
+                
+              } else if (isClimateSensor) {
+                const temp = dData.temperature ?? 0;
+                const hum = dData.humidity ?? 0;
+                icon = Thermometer;
+                statusLabel = `${temp}°C · ${hum}%`;
+                statusColor = temp < 20 ? "#3B82F6" : "#F97316"; 
+                livePulse = false;
+                showSwitch = false;
+
+              } else if (isPlug) {
+                icon = Plug;
+                livePulse = dIsOn && (dData.power > 0);
+                if (!dIsOn) {
+                  statusLabel = "Off";
+                  livePulse = false;
+                } else {
+                  const remainingSec = dData.countdown || 0;
+                  let parts = [`${Math.round(dData.power ?? 0)}W`];
+                  if (remainingSec > 0) parts.push(`Auto-off: ${formatRemaining(remainingSec)}`);
+                  statusLabel = parts.join(" · ");
+                }
+              
+              } else {
+                icon = Lightbulb;
+                let dKelvin = undefined;
+                if (dData.color_mode === "color_temp" || (dData.color_temp && !dData.color)) {
+                  dKelvin = Math.round(1000000 / dData.color_temp);
+                  statusColor = kelvinToHex(dKelvin);
+                } else if (dData.color && dData.color.h !== undefined) {
+                  statusColor = hslToHex(dData.color.h, dData.color.s || 100, 50);
+                } else if (wheelCache[d.friendly_name]) {
+                  const cached = wheelCache[d.friendly_name];
+                  statusColor = hslToHex(cached.h, cached.s, 50);
+                } else if (dData.color_temp) {
+                  dKelvin = Math.round(1000000 / dData.color_temp);
+                  statusColor = kelvinToHex(dKelvin);
+                }
+                const brightnessPct = Math.round(((dData.brightness || 0) / 254) * 100);
+                statusLabel = lightStatusLabel(dIsOn, brightnessPct, dData.color_mode, dKelvin, statusColor);
+              }
+
+              return (
+                <DeviceTile
+                  key={d.id}
+                  icon={icon} 
+                  name={d.friendly_name}
+                  room={d.room_name || "Unassigned"}
+                  livePulse={livePulse}
+                  statusLabel={statusLabel}
+                  statusColor={statusColor}
+                  iconColor={iconColor}
+                  enabled={dIsOn}
+                  offline={isOffline}
+                  showSwitch={showSwitch}
+                  onClick={() => navigate(`/devices?select=${encodeURIComponent(d.friendly_name)}`)}
+                  onToggle={(e: any) => {
+                    if (e && e.stopPropagation) e.stopPropagation();
+                    handleToggle(d.friendly_name);
+                  }}
+                />
+              );
+            })
+          )}
         </div>
       </div>
     </div>
@@ -1816,10 +1652,9 @@ const Dashboard = () => {
 
 export default Dashboard;
 
-
-=========================================
-FILE: apps/web/src/pages/NotFound.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/pages/NotFound.tsx
+========================================
 import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
 
@@ -1846,14 +1681,15 @@ const NotFound = () => {
 export default NotFound;
 
 
-=========================================
-FILE: apps/web/src/pages/Devices.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/pages/Devices.tsx
+========================================
 import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { 
   Lightbulb, LayoutGrid, Pencil, Trash2, Thermometer, Sun, Palette, Sparkles, Signal,
   Plug, Lock, Unlock, Timer, Zap, Activity, BatteryCharging, Minus, Plus, RotateCcw, WifiOff,
-  ShieldCheck, ShieldAlert, Battery, BatteryLow, Droplets
+  ShieldCheck, ShieldAlert, Battery, BatteryLow, Droplets, PlusCircle
 } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
 import { DeviceTile } from "@/components/livora/DeviceTile";
@@ -1863,7 +1699,7 @@ import { useDevices } from "@/hooks/use-devices";
 import { useWebSockets } from "@/hooks/use-websockets";
 import axios from "axios";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -1915,17 +1751,32 @@ const lightStatusLabel = (isOn: boolean, brightness: number, colorMode: string, 
 };
 
 const Devices = () => {
-  const { data: devices = [], isLoading } = useDevices();
+  const { data: devices = [], isLoading: isLoadingDevices } = useDevices();
+  const [searchParams] = useSearchParams();
+  const selectParam = searchParams.get('select');
+  
+  const { data: rooms = [], isLoading: isLoadingRooms } = useQuery({
+    queryKey: ['rooms'],
+    queryFn: async () => {
+      const res = await axios.get(`${API_URL}/rooms`);
+      return res.data;
+    }
+  });
+
   const { socket } = useWebSockets();
   const queryClient = useQueryClient();
   
-  const [activeRoom, setActiveRoom] = useState("All");
+  const [activeRoomId, setActiveRoomId] = useState<number | null>(null);
   const [localLiveData, setLocalLiveData] = useState<Record<string, any>>({});
   
   const [deviceToRename, setDeviceToRename] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [deviceToDelete, setDeviceToDelete] = useState<string | null>(null);
   
+  const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
+  const [newRoomName, setNewRoomName] = useState("");
+  const [roomToDelete, setRoomToDelete] = useState<{id: number, name: string} | null>(null);
+
   const [selectedDevice, setSelectedDevice] = useState<any | null>(null);
   
   const [deviceEffects, setDeviceEffects] = useState<Record<string, string>>({});
@@ -1935,18 +1786,143 @@ const Devices = () => {
   const [wheelCache, setWheelCache] = useState<Record<string, {h: number, s: number}>>({});
 
   useEffect(() => {
+    if (selectParam && devices.length > 0) {
+      const deviceToSelect = devices.find((d: any) => d.friendly_name === selectParam);
+      if (deviceToSelect) {
+        setSelectedDevice(deviceToSelect);
+        if (deviceToSelect.room_id) {
+          setActiveRoomId(deviceToSelect.room_id);
+        } else {
+          setActiveRoomId(null);
+        }
+      }
+    }
+  }, [selectParam, devices]);
+
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    const ctx = new AudioContextClass();
+    audioCtxRef.current = ctx;
+
+    const unlockAudio = () => {
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+    };
+
+    window.addEventListener('click', unlockAudio, { capture: true });
+    window.addEventListener('touchstart', unlockAudio, { capture: true });
+    window.addEventListener('keydown', unlockAudio, { capture: true });
+
+    return () => {
+      window.removeEventListener('click', unlockAudio, { capture: true });
+      window.removeEventListener('touchstart', unlockAudio, { capture: true });
+      window.removeEventListener('keydown', unlockAudio, { capture: true });
+      if (ctx.state !== 'closed') {
+        ctx.close().catch(() => {});
+      }
+    };
+  }, []);
+
+  const isAlarmActive = Object.values(localLiveData).some(
+    (d: any) => 
+      d.tamper === true || d.tamper === "true" || 
+      d.water_leak === true || d.water_leak === "true"
+  );
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    
+    if (isAlarmActive) {
+      const playBeep = () => {
+        const ctx = audioCtxRef.current;
+        if (!ctx) return;
+        
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
+        if (ctx.state === 'suspended') return;
+        
+        try {
+          const oscillator = ctx.createOscillator();
+          const gainNode = ctx.createGain();
+          
+          oscillator.connect(gainNode);
+          gainNode.connect(ctx.destination);
+          
+          oscillator.type = 'sawtooth';
+          oscillator.frequency.setValueAtTime(800, ctx.currentTime); 
+          oscillator.frequency.setValueAtTime(1000, ctx.currentTime + 0.25); 
+          
+          gainNode.gain.setValueAtTime(0, ctx.currentTime);
+          gainNode.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.05); 
+          gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5); 
+          
+          oscillator.start(ctx.currentTime);
+          oscillator.stop(ctx.currentTime + 0.55);
+        } catch(e) { console.error(e) }
+      };
+
+      playBeep();
+      interval = setInterval(playBeep, 1000); 
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isAlarmActive]);
+
+  useEffect(() => {
     if (!socket) return;
     socket.on('device_state_update', (data: any) => {
       setLocalLiveData(prev => {
         const current = prev[data.friendlyName] || {};
         const incoming = { ...data.payload };
         
-        // Ochrona przed "echem" z backendu - zapobiega cofaniu timera
+        if (incoming.tamper !== undefined) {
+          const isTampered = incoming.tamper === true || incoming.tamper === "true";
+          const wasTampered = current.tamper === true || current.tamper === "true";
+          
+          if (isTampered && !wasTampered) {
+            toast.error("Security Alert!", {
+              id: `tamper-${data.friendlyName}`,
+              description: `Tamper detected on ${data.friendlyName}!`,
+              duration: Infinity, 
+            });
+          } else if (!isTampered && wasTampered) {
+            toast.dismiss(`tamper-${data.friendlyName}`); 
+          }
+        }
+
+        if (incoming.water_leak !== undefined) {
+          const isLeaking = incoming.water_leak === true || incoming.water_leak === "true";
+          const wasLeaking = current.water_leak === true || current.water_leak === "true";
+
+          if (isLeaking && !wasLeaking) {
+            toast.error("Water Leak Alert!", {
+              id: `leak-${data.friendlyName}`,
+              description: `Leak detected on ${data.friendlyName}!`,
+              duration: Infinity, 
+            });
+          } else if (!isLeaking && wasLeaking) {
+            toast.dismiss(`leak-${data.friendlyName}`); 
+          }
+        }
+
         if (incoming.countdown !== undefined) {
           if (incoming.countdown === current.originalCountdown && current.countdown > 0) {
             incoming.countdown = current.countdown; 
           } else {
             incoming.originalCountdown = incoming.countdown;
+            if (incoming.countdown > 0) {
+              sessionStorage.setItem(`countdown_ends_at_${data.friendlyName}`, (Date.now() + incoming.countdown * 1000).toString());
+            } else {
+              sessionStorage.removeItem(`countdown_ends_at_${data.friendlyName}`);
+            }
           }
         }
         
@@ -1955,6 +1931,16 @@ const Devices = () => {
           [data.friendlyName]: { ...current, ...incoming }
         };
       });
+
+      queryClient.setQueryData(['devices'], (oldData: any) => {
+        if (!oldData) return oldData;
+        return oldData.map((d: any) => 
+          d.friendly_name === data.friendlyName 
+            ? { ...d, last_payload: { ...d.last_payload, ...data.payload } } 
+            : d
+        );
+      });
+
     });
     socket.on('device_list_updated', () => queryClient.invalidateQueries({ queryKey: ['devices'] }));
     return () => { 
@@ -1965,9 +1951,31 @@ const Devices = () => {
 
   useEffect(() => {
     if (devices.length > 0) {
-      const initialData: Record<string, any> = {};
-      devices.forEach(d => { if (d.last_payload) initialData[d.friendly_name] = d.last_payload; });
-      setLocalLiveData(prev => ({ ...initialData, ...prev }));
+      setLocalLiveData(prev => {
+        let hasChanges = false;
+        const next = { ...prev };
+        devices.forEach(d => {
+          if (d.last_payload && !next[d.friendly_name]) {
+            const payload = { ...d.last_payload };
+            
+            const savedEnd = sessionStorage.getItem(`countdown_ends_at_${d.friendly_name}`);
+            if (savedEnd && payload.countdown > 0) {
+              const remaining = Math.round((parseInt(savedEnd) - Date.now()) / 1000);
+              if (remaining > 0) {
+                payload.countdown = remaining;
+                payload.originalCountdown = d.last_payload.countdown;
+              } else {
+                payload.countdown = 0;
+                sessionStorage.removeItem(`countdown_ends_at_${d.friendly_name}`);
+              }
+            }
+            
+            next[d.friendly_name] = payload;
+            hasChanges = true;
+          }
+        });
+        return hasChanges ? next : prev;
+      });
     }
   }, [devices]);
 
@@ -2002,12 +2010,55 @@ const Devices = () => {
       const current = prev[friendlyName] || {};
       const newPayload = { ...payload };
       
-      // Oznaczamy nasz nowy timer, by zignorować stare echa z serwera
+      if (newPayload.tamper !== undefined) {
+        const isTampered = newPayload.tamper === true || newPayload.tamper === "true";
+        const wasTampered = current.tamper === true || current.tamper === "true";
+
+        if (isTampered && !wasTampered) {
+          toast.error("Security Alert!", {
+            id: `tamper-${friendlyName}`,
+            description: `Tamper detected on ${friendlyName}!`,
+            duration: Infinity,
+          });
+        } else if (!isTampered && wasTampered) {
+          toast.dismiss(`tamper-${friendlyName}`);
+        }
+      }
+
+      if (newPayload.water_leak !== undefined) {
+        const isLeaking = newPayload.water_leak === true || newPayload.water_leak === "true";
+        const wasLeaking = current.water_leak === true || current.water_leak === "true";
+
+        if (isLeaking && !wasLeaking) {
+          toast.error("Water Leak Alert!", {
+            id: `leak-${friendlyName}`,
+            description: `Leak detected on ${friendlyName}!`,
+            duration: Infinity,
+          });
+        } else if (!isLeaking && wasLeaking) {
+          toast.dismiss(`leak-${friendlyName}`);
+        }
+      }
+
       if (newPayload.countdown !== undefined) {
         newPayload.originalCountdown = newPayload.countdown;
+        if (newPayload.countdown > 0) {
+          sessionStorage.setItem(`countdown_ends_at_${friendlyName}`, (Date.now() + newPayload.countdown * 1000).toString());
+        } else {
+          sessionStorage.removeItem(`countdown_ends_at_${friendlyName}`);
+        }
       }
       
       return { ...prev, [friendlyName]: { ...current, ...newPayload } };
+    });
+
+    queryClient.setQueryData(['devices'], (oldData: any) => {
+      if (!oldData) return oldData;
+      return oldData.map((d: any) => 
+        d.friendly_name === friendlyName 
+          ? { ...d, last_payload: { ...d.last_payload, ...payload } } 
+          : d
+      );
     });
 
     const key = `${friendlyName}_cmd`;
@@ -2022,13 +2073,27 @@ const Devices = () => {
     const key = `${friendlyName}_cmd`;
     if (debounceRefs.current[key]) clearTimeout(debounceRefs.current[key]);
 
+    let newState = "ON";
+
     setLocalLiveData(prev => {
       const current = prev[friendlyName] || {};
-      const newState = current.state === "ON" ? "OFF" : "ON";
+      newState = current.state === "ON" ? "OFF" : "ON";
       return { ...prev, [friendlyName]: { ...current, state: newState } };
     });
 
-    sendCommand(friendlyName, { state: 'TOGGLE' });
+    queryClient.setQueryData(['devices'], (oldData: any) => {
+      if (!oldData) return oldData;
+      return oldData.map((d: any) => 
+        d.friendly_name === friendlyName 
+          ? { ...d, last_payload: { ...d.last_payload, state: newState } } 
+          : d
+      );
+    });
+
+    debounceRefs.current[key] = setTimeout(() => {
+      axios.post(`${API_URL}/devices/${friendlyName}/set`, { state: 'TOGGLE' })
+        .catch(() => toast.error(`Błąd sterowania: ${friendlyName}`));
+    }, 250);
   };
 
   const handleDelete = async (friendlyName: string) => {
@@ -2048,36 +2113,87 @@ const Devices = () => {
       await axios.put(`${API_URL}/devices/${oldName}/rename`, { new_name: updatedName.trim() });
       toast.success("Zmieniono nazwę urządzenia");
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      if (selectedDevice && selectedDevice.friendly_name === oldName) {
+         setSelectedDevice({ ...selectedDevice, friendly_name: updatedName.trim() });
+      }
     } catch (error) {
       toast.error("Nie udało się zmienić nazwy urządzenia");
     }
   };
 
-  const rooms = [
-    { name: "All", count: devices.length },
-    { name: "Living room", count: 0 },
-    { name: "Kitchen", count: 0 },
-    { name: "Bedroom", count: 0 },
+  const handleAddRoom = async () => {
+    if (!newRoomName.trim()) return;
+    try {
+      await axios.post(`${API_URL}/rooms`, { name: newRoomName.trim() });
+      toast.success("Room created successfully");
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      setIsAddRoomOpen(false);
+      setNewRoomName("");
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || "Failed to create room");
+    }
+  };
+
+  const handleDeleteRoom = async (id: number) => {
+    try {
+      await axios.delete(`${API_URL}/rooms/${id}`);
+      toast.success("Room deleted");
+      if (activeRoomId === id) setActiveRoomId(null);
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+    } catch (error) {
+      toast.error("Failed to delete room");
+    }
+  };
+
+  const handleAssignRoom = async (friendlyName: string, roomId: number | null) => {
+    try {
+      await axios.put(`${API_URL}/devices/${friendlyName}/room`, { room_id: roomId });
+      toast.success("Room assigned");
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      
+      if (selectedDevice && selectedDevice.friendly_name === friendlyName) {
+         const assignedRoom = rooms.find((r: any) => r.id === roomId);
+         setSelectedDevice({ 
+           ...selectedDevice, 
+           room_id: roomId, 
+           room_name: assignedRoom ? assignedRoom.name : null 
+         });
+      }
+    } catch (error) {
+      toast.error("Failed to assign room");
+    }
+  };
+
+  const roomCounts = devices.reduce((acc: any, d: any) => {
+    const rId = d.room_id || 'unassigned';
+    acc[rId] = (acc[rId] || 0) + 1;
+    return acc;
+  }, {});
+
+  const displayRooms = [
+    { id: null, name: "All", count: devices.length },
+    ...rooms.map((r: any) => ({ ...r, count: roomCounts[r.id] || 0 }))
   ];
 
-  const filteredDevices = activeRoom === "All" ? devices : [];
+  const filteredDevices = activeRoomId === null 
+    ? devices 
+    : devices.filter((d: any) => d.room_id === activeRoomId);
 
-  // ==========================================
-  // LOGIKA ZAZNACZONEGO URZĄDZENIA (PRAWY PANEL)
-  // ==========================================
   const selectedData = selectedDevice ? (localLiveData[selectedDevice.friendly_name] || {}) : {};
   const isSelectedOffline = selectedData.state === 'OFFLINE' || selectedData.state === 'offline' || selectedData.availability === 'offline';
   
   const isSelectedContactSensor = selectedData.contact !== undefined || selectedData.tamper !== undefined;
   const isSelectedWaterLeak = selectedData.water_leak !== undefined;
+  const isSelectedClimateSensor = selectedData.temperature !== undefined || selectedData.humidity !== undefined;
   const isSelectedPlug = selectedData.power !== undefined || selectedData.current !== undefined || selectedData.energy !== undefined || selectedData.consumption !== undefined;
   
-  const isOn = (isSelectedContactSensor || isSelectedWaterLeak) ? !isSelectedOffline : (selectedData.state === "ON" && !isSelectedOffline);
+  const isOn = (isSelectedContactSensor || isSelectedWaterLeak || isSelectedClimateSensor) ? !isSelectedOffline : (selectedData.state === "ON" && !isSelectedOffline);
 
   let currentHexColor = "#FFFFFF";
   let currentKelvin = 4000;
   
-  if (!isSelectedPlug && !isSelectedContactSensor && !isSelectedWaterLeak && !isSelectedOffline) {
+  if (!isSelectedPlug && !isSelectedContactSensor && !isSelectedWaterLeak && !isSelectedClimateSensor && !isSelectedOffline) {
     if (selectedData.color_mode === "color_temp" || (selectedData.color_temp && !selectedData.color)) {
       currentKelvin = Math.round(1000000 / selectedData.color_temp);
       currentHexColor = kelvinToHex(currentKelvin);
@@ -2107,53 +2223,76 @@ const Devices = () => {
     const m = Math.floor((sec % 3600) / 60);
     const s = sec % 60;
     if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
-    return `${m}:${String(s).padStart(2, "0")}`; // Format MM:SS dla ładnego odliczania
+    return `${m}:${String(s).padStart(2, "0")}`; 
   };
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto">
-      <div>
-        <h1 className="font-display text-3xl font-semibold">Devices & Rooms</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage every connected device room by room.</p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="font-display text-3xl font-semibold">Devices & Rooms</h1>
+          <p className="text-sm text-muted-foreground mt-1">Manage every connected device room by room.</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_400px] gap-6">
         
-        {/* ========================================== */}
-        {/* LEWY PANEL (FILTRY POKOI)                  */}
-        {/* ========================================== */}
-        <GlassCard className="p-3 h-fit">
+        <GlassCard className="p-3 h-fit flex flex-col gap-2">
           <ul className="space-y-1">
-            {rooms.map((r) => (
-              <li key={r.name}>
+            {displayRooms.map((r) => (
+              <li key={r.id || 'all'}>
                 <button
-                  onClick={() => { setActiveRoom(r.name); setSelectedDevice(null); }}
+                  onClick={() => { setActiveRoomId(r.id); setSelectedDevice(null); }}
                   className={cn(
                     "w-full flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-medium transition-colors",
-                    r.name === activeRoom
+                    r.id === activeRoomId
                       ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
-                      : "text-foreground/70 hover:text-foreground hover:bg-muted/60",
+                      : "text-foreground/70 hover:text-foreground hover:bg-muted/60"
                   )}
                 >
                   <div className="flex items-center gap-2">
-                    {r.name === "All" && <LayoutGrid className="h-4 w-4" />}
-                    <span>{r.name}</span>
+                    {r.id === null && <LayoutGrid className="h-4 w-4" />}
+                    <span className="truncate max-w-[120px] text-left">{r.name}</span>
                   </div>
-                  <span className="text-xs opacity-70">{r.count}</span>
+                  
+                  <div className="flex items-center gap-3">
+                    <span className={cn("text-xs", r.id === activeRoomId ? "opacity-90" : "opacity-70")}>
+                      {r.count}
+                    </span>
+                    
+                    {r.id === activeRoomId && r.id !== null && (
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRoomToDelete({ id: r.id, name: r.name });
+                        }}
+                        className="flex items-center justify-center p-1.5 -mr-1.5 rounded-lg bg-black/10 hover:bg-black/20 dark:bg-white/10 dark:hover:bg-white/20 transition-colors"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </div>
+                    )}
+                  </div>
                 </button>
               </li>
             ))}
           </ul>
+
+          <div className="pt-2 border-t border-border/40">
+            <button
+              onClick={() => setIsAddRoomOpen(true)}
+              className="w-full flex items-center justify-start gap-2 rounded-2xl px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            >
+              <PlusCircle className="h-4 w-4" />
+              <span>Add new room</span>
+            </button>
+          </div>
         </GlassCard>
 
-        {/* ========================================== */}
-        {/* ŚRODKOWY PANEL (LISTA URZĄDZEŃ - KAFELKI)  */}
-        {/* ========================================== */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 content-start">
-          {isLoading ? (
+          {isLoadingDevices || isLoadingRooms ? (
             <p className="col-span-2 text-center py-10 text-muted-foreground">Loading devices...</p>
           ) : filteredDevices.length === 0 ? (
-            <p className="col-span-2 text-center py-10 text-muted-foreground">No devices found.</p>
+            <p className="col-span-2 text-center py-10 text-muted-foreground">No devices found in this room.</p>
           ) : (
             filteredDevices.map((d) => {
               const dData = localLiveData[d.friendly_name] || {};
@@ -2161,11 +2300,12 @@ const Devices = () => {
               
               const isContactSensor = dData.contact !== undefined || dData.tamper !== undefined;
               const isWaterLeak = dData.water_leak !== undefined;
+              const isClimateSensor = dData.temperature !== undefined || dData.humidity !== undefined;
               const isPlug = dData.power !== undefined || dData.current !== undefined || dData.energy !== undefined || dData.consumption !== undefined;
               
               const closed = dData.contact ?? true;
               
-              const dIsOn = (isContactSensor || isWaterLeak) ? !isOffline : (dData.state === "ON" && !isOffline);
+              const dIsOn = (isContactSensor || isWaterLeak || isClimateSensor) ? !isOffline : (dData.state === "ON" && !isOffline);
 
               let icon = Lightbulb;
               let statusLabel = "Off";
@@ -2174,10 +2314,8 @@ const Devices = () => {
               let livePulse = false;
               let showSwitch = true;
 
-              // 1. CZUJNIK ZALANIA
               if (isWaterLeak) {
-                const leaked = dData.water_leak ?? false;
-                const bat = Math.round(dData.battery ?? 0);
+                const leaked = dData.water_leak === true || dData.water_leak === "true";
 
                 icon = Droplets;
                 statusLabel = leaked ? "LEAK!" : "Dry";
@@ -2185,9 +2323,8 @@ const Devices = () => {
                 livePulse = leaked;
                 showSwitch = false;
 
-              // 2. CZUJNIK OTWARCIA
               } else if (isContactSensor) {
-                const tampered = dData.tamper ?? false;
+                const tampered = dData.tamper === true || dData.tamper === "true";
                 
                 icon = tampered ? ShieldAlert : Lock;
                 statusLabel = tampered ? "TAMPER!" : (closed ? "Closed" : "Open");
@@ -2195,7 +2332,16 @@ const Devices = () => {
                 livePulse = tampered;
                 showSwitch = false;
                 
-              // 3. SMART PLUG (Gniazdko)
+              } else if (isClimateSensor) {
+                const temp = dData.temperature ?? 0;
+                const hum = dData.humidity ?? 0;
+                
+                icon = Thermometer;
+                statusLabel = `${temp}°C · ${hum}%`;
+                statusColor = temp < 20 ? "#3B82F6" : "#F97316"; 
+                livePulse = false;
+                showSwitch = false;
+
               } else if (isPlug) {
                 icon = Plug;
                 iconColor = undefined; 
@@ -2213,7 +2359,6 @@ const Devices = () => {
                   statusLabel = parts.join(" · ");
                 }
               
-              // 4. ŻARÓWKA (Domyślne)
               } else {
                 icon = Lightbulb;
                 let dKelvin = undefined;
@@ -2238,7 +2383,7 @@ const Devices = () => {
                   key={d.id}
                   icon={icon} 
                   name={d.friendly_name}
-                  room={activeRoom}
+                  room={d.room_name || "Unassigned"}
                   livePulse={livePulse}
                   statusLabel={statusLabel}
                   statusColor={statusColor}
@@ -2248,24 +2393,25 @@ const Devices = () => {
                   showSwitch={showSwitch}
                   selected={selectedDevice?.id === d.id}
                   onClick={() => setSelectedDevice(d)} 
-                  onToggle={() => handleToggle(d.friendly_name)}
+                  onToggle={(e: any) => {
+                    if (e && e.stopPropagation) e.stopPropagation();
+                    handleToggle(d.friendly_name);
+                  }}
                 />
               );
             })
           )}
         </div>
 
-        {/* ========================================== */}
-        {/* PRAWY PANEL (SZCZEGÓŁY WYBRANEGO URZĄDZENIA) */}
-        {/* ========================================== */}
         {selectedDevice ? (
           <GlassCard variant="strong" className="p-6 h-fit space-y-6 flex flex-col">
             
-            {/* NAGŁÓWEK KARTY */}
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-3">
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">{activeRoom}</p>
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                    {selectedDevice.room_name || "Unassigned"}
+                  </p>
                   
                   {isSelectedOffline ? (
                     <div className="flex items-center gap-1 text-[10px] text-destructive font-bold bg-destructive/10 px-2 py-0.5 rounded-md uppercase tracking-wider">
@@ -2282,8 +2428,7 @@ const Devices = () => {
                 <h3 className="font-display text-2xl font-semibold truncate mt-1.5">{selectedDevice.friendly_name}</h3>
               </div>
               
-              {/* Ukrywamy suwak dla czujników (otwarcia i zalania) */}
-              {!isSelectedContactSensor && !isSelectedWaterLeak && (
+              {!isSelectedContactSensor && !isSelectedWaterLeak && !isSelectedClimateSensor && (
                 <Switch
                   checked={isOn}
                   disabled={isSelectedOffline}
@@ -2292,10 +2437,8 @@ const Devices = () => {
               )}
             </div>
 
-            {/* ZAWARTOŚĆ KARTY ZALEŻNA OD TYPU */}
             <div>
               {isSelectedOffline ? (
-                // WIDOK BRAKU POŁĄCZENIA
                 <div className="py-10 flex flex-col items-center justify-center text-center bg-muted/20 rounded-3xl border border-border/40">
                   <div className="h-16 w-16 rounded-full bg-destructive/10 text-destructive flex items-center justify-center mb-4">
                     <WifiOff className="h-8 w-8" />
@@ -2306,10 +2449,9 @@ const Devices = () => {
                   </p>
                 </div>
               ) : isSelectedWaterLeak ? (
-                // PANEL CZUJNIKA ZALANIA
                 <div className="space-y-6">
                   {(() => {
-                    const leaked = selectedData.water_leak ?? false;
+                    const leaked = selectedData.water_leak === true || selectedData.water_leak === "true";
                     const bat = Math.round(selectedData.battery ?? 0);
                     const heroColor = leaked ? "#E5484D" : "#7FD4A1";
                     
@@ -2328,7 +2470,6 @@ const Devices = () => {
                           </div>
                         </div>
 
-                        {/* Metryki czujnika zalania */}
                         <div className="grid grid-cols-2 gap-3">
                           <div className={cn("rounded-2xl border p-4 transition-colors", !leaked ? "bg-background/50 border-border/40" : "bg-destructive/5 border-destructive/30")}>
                             <div className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
@@ -2350,16 +2491,37 @@ const Devices = () => {
                             </p>
                           </div>
                         </div>
+
+                        <div className="pt-2">
+                          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">Test Alarm</p>
+                          <div className="flex items-center justify-between rounded-2xl bg-background/50 border border-border/40 px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className={cn("h-9 w-9 rounded-xl flex items-center justify-center",
+                                !leaked ? "bg-muted text-muted-foreground" : "bg-destructive text-primary-foreground")}>
+                                <Droplets className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium">Simulate Leak</p>
+                                <p className="text-xs text-muted-foreground">
+                                  Trigger fake alarm for testing
+                                </p>
+                              </div>
+                            </div>
+                            <Switch 
+                              checked={leaked} 
+                              onCheckedChange={(v) => sendCommandOptimistic(selectedDevice.friendly_name, { water_leak: v })} 
+                            />
+                          </div>
+                        </div>
                       </>
                     );
                   })()}
                 </div>
               ) : isSelectedContactSensor ? (
-                // PANEL CZUJNIKA OTWARCIA
                 <div className="space-y-6">
                   {(() => {
                     const closed = selectedData.contact ?? true;
-                    const tampered = selectedData.tamper ?? false;
+                    const tampered = selectedData.tamper === true || selectedData.tamper === "true";
                     const HeroIcon = tampered ? ShieldAlert : closed ? Lock : Unlock;
                     const heroColor = tampered ? "#E5484D" : closed ? "#7FD4A1" : "#E5484D";
                     
@@ -2379,15 +2541,13 @@ const Devices = () => {
                     );
                   })()}
 
-                  {/* 3 kafelki metryk */}
                   {(() => {
                     const closed = selectedData.contact ?? true;
-                    const tampered = selectedData.tamper ?? false;
+                    const tampered = selectedData.tamper === true || selectedData.tamper === "true";
                     const bat = Math.round(selectedData.battery ?? 0);
 
                     return (
                       <div className="grid grid-cols-3 gap-3">
-                        {/* Contact */}
                         <div className={cn("rounded-2xl border p-4 transition-colors", closed ? "bg-background/50 border-border/40" : "bg-destructive/5 border-destructive/30")}>
                           <div className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
                             {closed ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
@@ -2398,7 +2558,6 @@ const Devices = () => {
                           </p>
                         </div>
 
-                        {/* Tamper */}
                         <div className={cn("rounded-2xl border p-4 transition-colors", !tampered ? "bg-background/50 border-border/40" : "bg-destructive/5 border-destructive/30")}>
                           <div className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
                             {!tampered ? <ShieldCheck className="h-3.5 w-3.5" /> : <ShieldAlert className="h-3.5 w-3.5" />}
@@ -2409,7 +2568,6 @@ const Devices = () => {
                           </p>
                         </div>
 
-                        {/* Battery */}
                         <div className={cn("rounded-2xl border p-4 transition-colors", bat > 15 ? "bg-background/50 border-border/40" : "bg-destructive/5 border-destructive/30")}>
                           <div className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
                             {bat > 15 ? <Battery className="h-3.5 w-3.5" /> : <BatteryLow className="h-3.5 w-3.5" />}
@@ -2423,14 +2581,13 @@ const Devices = () => {
                     )
                   })()}
 
-                  {/* Symulacja tampera */}
                   <div className="pt-2">
                     <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">Test Alarm</p>
                     <div className="flex items-center justify-between rounded-2xl bg-background/50 border border-border/40 px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className={cn("h-9 w-9 rounded-xl flex items-center justify-center",
-                          !(selectedData.tamper ?? false) ? "bg-muted text-muted-foreground" : "bg-destructive text-primary-foreground")}>
-                          {!(selectedData.tamper ?? false) ? <ShieldCheck className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
+                          !(selectedData.tamper === true || selectedData.tamper === "true") ? "bg-muted text-muted-foreground" : "bg-destructive text-primary-foreground")}>
+                          {!(selectedData.tamper === true || selectedData.tamper === "true") ? <ShieldCheck className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
                         </div>
                         <div>
                           <p className="text-sm font-medium">Simulate Tamper</p>
@@ -2440,35 +2597,112 @@ const Devices = () => {
                         </div>
                       </div>
                       <Switch 
-                        checked={selectedData.tamper ?? false} 
+                        checked={selectedData.tamper === true || selectedData.tamper === "true"} 
                         onCheckedChange={(v) => sendCommandOptimistic(selectedDevice.friendly_name, { tamper: v })} 
                       />
                     </div>
                   </div>
                 </div>
+              ) : isSelectedClimateSensor ? (
+                <div className="space-y-6">
+                  {(() => {
+                    const temp = selectedData.temperature ?? 0;
+                    const hum = selectedData.humidity ?? "--";
+                    const illum = selectedData.illuminance ?? "--";
+                    const bat = Math.round(selectedData.battery ?? 0);
+                    
+                    const isCold = temp < 20;
+                    const heroColor = isCold ? "#3b82f6" : "#f97316";
+                    const glowFilter = isCold ? "drop-shadow(0 0 16px rgba(59, 130, 246, 0.5))" : "drop-shadow(0 0 16px rgba(249, 115, 22, 0.5))";
+
+                    return (
+                      <>
+                        <div
+                          className="rounded-2xl p-8 flex items-center justify-between transition-all duration-500 relative overflow-hidden"
+                          style={{
+                            background: `radial-gradient(circle at 85% 50%, ${heroColor}40 0%, ${heroColor}05 70%)`
+                          }}
+                        >
+                          <div className="relative z-10">
+                            <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Temperature</p>
+                            <p className="mt-2 font-display text-5xl font-semibold text-foreground">
+                              {temp}
+                              <span className="ml-1 text-xl font-medium text-muted-foreground">°C</span>
+                            </p>
+                          </div>
+                          <div className="relative z-10">
+                            <Thermometer
+                              className="h-20 w-20 transition-all duration-500"
+                              strokeWidth={1.2}
+                              style={{
+                                color: heroColor,
+                                filter: glowFilter
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="rounded-2xl bg-background/50 border border-border/40 p-3 flex flex-col justify-center">
+                            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap overflow-hidden">
+                              <Droplets className="h-3 w-3 shrink-0" />
+                              <span className="truncate">Humidity</span>
+                            </div>
+                            <p className="mt-1 font-display text-lg font-semibold truncate">
+                              {hum}<span className="ml-1 text-[10px] font-medium text-muted-foreground">%</span>
+                            </p>
+                          </div>
+                          
+                          <div className="rounded-2xl bg-background/50 border border-border/40 p-3 flex flex-col justify-center">
+                            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap overflow-hidden">
+                              <Sun className="h-3 w-3 shrink-0" />
+                              <span className="truncate">Illuminance</span>
+                            </div>
+                            <p className="mt-1 font-display text-lg font-semibold truncate">
+                              {illum}<span className="ml-1 text-[10px] font-medium text-muted-foreground">lx</span>
+                            </p>
+                          </div>
+
+                          <div className={cn("rounded-2xl border p-3 flex flex-col justify-center", bat > 15 ? "bg-background/50 border-border/40" : "bg-destructive/5 border-destructive/30")}>
+                            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap overflow-hidden">
+                              {bat > 15 ? <Battery className="h-3 w-3 shrink-0" /> : <BatteryLow className="h-3 w-3 shrink-0" />}
+                              <span className="truncate">Battery</span>
+                            </div>
+                            <p className={cn("mt-1 font-display text-lg font-semibold truncate", bat <= 15 && "text-destructive")}>
+                              {bat}<span className="ml-1 text-[10px] font-medium text-muted-foreground">%</span>
+                            </p>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
               ) : isSelectedPlug ? (
-                // PANEL SMART PLUG
                 <div className="space-y-6">
                   <div
-                    className={cn(
-                      "rounded-2xl p-6 flex items-center justify-between transition-colors",
-                      isOn ? "bg-blue-500/10" : "bg-muted/40",
-                    )}
+                    className="rounded-2xl p-8 flex items-center justify-between transition-all duration-500 relative overflow-hidden"
+                    style={{
+                      background: isOn
+                        ? "radial-gradient(circle at 85% 50%, #3b82f640 0%, #3b82f605 70%)"
+                        : "hsl(var(--muted) / 0.4)",
+                    }}
                   >
-                    <div>
-                      <p className="text-xs uppercase tracking-wider text-muted-foreground">Power draw</p>
-                      <p className="mt-1 font-display text-4xl font-semibold">
+                    <div className="relative z-10">
+                      <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Power draw</p>
+                      <p className="mt-2 font-display text-5xl font-semibold text-foreground">
                         {isOn ? Math.round(selectedData.power ?? 0) : 0}
-                        <span className="ml-1 text-base font-medium text-muted-foreground">W</span>
+                        <span className="ml-1 text-xl font-medium text-muted-foreground">W</span>
                       </p>
                     </div>
-                    <div
-                      className={cn(
-                        "h-14 w-14 rounded-2xl flex items-center justify-center transition-colors",
-                        isOn ? "bg-blue-500 text-white" : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      <Plug className="h-6 w-6" />
+                    <div className="relative z-10">
+                      <Plug
+                        className="h-20 w-20 transition-all duration-500"
+                        strokeWidth={1.2}
+                        style={{
+                          color: isOn ? "#3b82f6" : "hsl(var(--muted-foreground))",
+                          filter: isOn ? "drop-shadow(0 0 16px rgba(59, 130, 246, 0.5))" : "none"
+                        }}
+                      />
                     </div>
                   </div>
 
@@ -2582,7 +2816,6 @@ const Devices = () => {
                   </div>
                 </div>
               ) : (
-                // PANEL OŚWIETLENIA (widoczny tylko gdy online)
                 <div className="space-y-6">
                   <div
                     className="rounded-2xl p-8 flex items-center justify-center transition-colors duration-500"
@@ -2733,31 +2966,53 @@ const Devices = () => {
               )}
             </div>
 
-            {/* AKCJE - Pozostawione na dole, zawsze widoczne */}
-            <div className="pt-6 border-t border-border/50 flex items-center gap-2 mt-auto">
-              <button
-                onClick={() => { setDeviceToRename(selectedDevice.friendly_name); setNewName(selectedDevice.friendly_name); }}
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-background/60 hover:bg-background py-2.5 text-sm font-medium transition active:scale-95"
-              >
-                <Pencil className="h-4 w-4" /> Rename
-              </button>
-              <button
-                onClick={() => setDeviceToDelete(selectedDevice.friendly_name)}
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-destructive/10 text-destructive hover:bg-destructive/20 py-2.5 text-sm font-medium transition active:scale-95"
-              >
-                <Trash2 className="h-4 w-4" /> Delete
-              </button>
+            <div className="pt-6 border-t border-border/50 flex flex-col gap-3 mt-auto">
+              <div className="w-full">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 ml-1">Room Assignment</p>
+                <Select 
+                  value={selectedDevice.room_id ? selectedDevice.room_id.toString() : "unassigned"} 
+                  onValueChange={(val) => handleAssignRoom(selectedDevice.friendly_name, val === "unassigned" ? null : parseInt(val))}
+                >
+                  <SelectTrigger className="w-full bg-background/50 rounded-xl border-border/50 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:outline-none outline-none ring-0">
+                    <SelectValue placeholder="Select a room" />
+                  </SelectTrigger>
+                  <SelectContent className="glass rounded-xl border-border/50 p-1 shadow-xl">
+                    <SelectItem value="unassigned" className="rounded-md focus:bg-primary/10 focus:text-foreground cursor-pointer py-2.5">
+                      No Room (All)
+                    </SelectItem>
+                    {rooms.map((r: any) => (
+                      <SelectItem key={r.id} value={r.id.toString()} className="rounded-md focus:bg-primary/10 focus:text-foreground cursor-pointer py-2.5">
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setDeviceToRename(selectedDevice.friendly_name); setNewName(selectedDevice.friendly_name); }}
+                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-background/60 hover:bg-background py-2.5 text-sm font-medium transition active:scale-95"
+                >
+                  <Pencil className="h-4 w-4" /> Rename
+                </button>
+                <button
+                  onClick={() => setDeviceToDelete(selectedDevice.friendly_name)}
+                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 py-2.5 text-sm font-medium transition active:scale-95"
+                >
+                  <Trash2 className="h-4 w-4" /> Delete
+                </button>
+              </div>
             </div>
             
           </GlassCard>
         ) : (
-          <GlassCard className="p-6 h-fit text-center text-sm text-muted-foreground">
-            Select a device to see its controls.
+          <GlassCard className="p-6 text-sm text-muted-foreground flex items-center justify-center">
+            <p>Select a device to see its controls and details.</p>
           </GlassCard>
         )}
       </div>
 
-      {/* Alert Dialogs dla Rename i Delete */}
       <AlertDialog open={!!deviceToDelete} onOpenChange={() => setDeviceToDelete(null)}>
         <AlertDialogContent className="glass border-white/20 rounded-[28px] max-w-md">
           <AlertDialogHeader>
@@ -2820,204 +3075,77 @@ const Devices = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={isAddRoomOpen} onOpenChange={setIsAddRoomOpen}>
+        <DialogContent className="glass border-white/20 rounded-[28px] max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display">Add New Room</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Input 
+              value={newRoomName} 
+              onChange={(e) => setNewRoomName(e.target.value)} 
+              placeholder="e.g. Living Room"
+              className="bg-background/50 border-white/10 rounded-xl"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAddRoom();
+              }}
+            />
+          </div>
+          <DialogFooter className="gap-2 mt-4">
+            <Button 
+              variant="outline" 
+              onClick={() => setIsAddRoomOpen(false)} 
+              className="rounded-xl border-none bg-muted hover:bg-muted/80 transition-colors"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleAddRoom}
+              className="rounded-xl transition-colors"
+            >
+              Create Room
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!roomToDelete} onOpenChange={() => setRoomToDelete(null)}>
+        <AlertDialogContent className="glass border-white/20 rounded-[28px] max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-xl font-semibold">Delete Room?</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              Are you sure you want to delete <span className="text-foreground font-medium">{roomToDelete?.name}</span>? 
+              Devices in this room will not be deleted, but will become unassigned.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 mt-4">
+            <AlertDialogCancel className="rounded-xl border-none bg-muted hover:bg-muted/80 transition-colors">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                if (roomToDelete) handleDeleteRoom(roomToDelete.id);
+                setRoomToDelete(null);
+              }}
+              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 };
 
 export default Devices;
 
-=========================================
-FILE: apps/web/src/App.old.css
-=========================================
-.counter {
-  font-size: 16px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  color: var(--accent);
-  background: var(--accent-bg);
-  border: 2px solid transparent;
-  transition: border-color 0.3s;
-  margin-bottom: 24px;
-
-  &:hover {
-    border-color: var(--accent-border);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-}
-
-.hero {
-  position: relative;
-
-  .base,
-  .framework,
-  .vite {
-    inset-inline: 0;
-    margin: 0 auto;
-  }
-
-  .base {
-    width: 170px;
-    position: relative;
-    z-index: 0;
-  }
-
-  .framework,
-  .vite {
-    position: absolute;
-  }
-
-  .framework {
-    z-index: 1;
-    top: 34px;
-    height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
-      scale(1.4);
-  }
-
-  .vite {
-    z-index: 0;
-    top: 107px;
-    height: 26px;
-    width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
-      scale(0.8);
-  }
-}
-
-#center {
-  display: flex;
-  flex-direction: column;
-  gap: 25px;
-  place-content: center;
-  place-items: center;
-  flex-grow: 1;
-
-  @media (max-width: 1024px) {
-    padding: 32px 20px 24px;
-    gap: 18px;
-  }
-}
-
-#next-steps {
-  display: flex;
-  border-top: 1px solid var(--border);
-  text-align: left;
-
-  & > div {
-    flex: 1 1 0;
-    padding: 32px;
-    @media (max-width: 1024px) {
-      padding: 24px 20px;
-    }
-  }
-
-  .icon {
-    margin-bottom: 16px;
-    width: 22px;
-    height: 22px;
-  }
-
-  @media (max-width: 1024px) {
-    flex-direction: column;
-    text-align: center;
-  }
-}
-
-#docs {
-  border-right: 1px solid var(--border);
-
-  @media (max-width: 1024px) {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-}
-
-#next-steps ul {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  gap: 8px;
-  margin: 32px 0 0;
-
-  .logo {
-    height: 18px;
-  }
-
-  a {
-    color: var(--text-h);
-    font-size: 16px;
-    border-radius: 6px;
-    background: var(--social-bg);
-    display: flex;
-    padding: 6px 12px;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    transition: box-shadow 0.3s;
-
-    &:hover {
-      box-shadow: var(--shadow);
-    }
-    .button-icon {
-      height: 18px;
-      width: 18px;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    margin-top: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-
-    li {
-      flex: 1 1 calc(50% - 8px);
-    }
-
-    a {
-      width: 100%;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-  }
-}
-
-#spacer {
-  height: 88px;
-  border-top: 1px solid var(--border);
-  @media (max-width: 1024px) {
-    height: 48px;
-  }
-}
-
-.ticks {
-  position: relative;
-  width: 100%;
-
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    top: -4.5px;
-    border: 5px solid transparent;
-  }
-
-  &::before {
-    left: 0;
-    border-left-color: var(--border);
-  }
-  &::after {
-    right: 0;
-    border-right-color: var(--border);
-  }
-}
-
-
-=========================================
-FILE: apps/web/src/vite-env.d.ts
-=========================================
+========================================
+PLIK: ./apps/web/src/vite-env.d.ts
+========================================
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
@@ -3029,9 +3157,9 @@ interface ImportMeta {
     readonly env: ImportMetaEnv;
 }
 
-=========================================
-FILE: apps/web/src/components/NavLink.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/NavLink.tsx
+========================================
 import { NavLink as RouterNavLink, NavLinkProps } from "react-router-dom";
 import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
@@ -3062,9 +3190,9 @@ NavLink.displayName = "NavLink";
 export { NavLink };
 
 
-=========================================
-FILE: apps/web/src/components/livora/MetricBadge.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/livora/MetricBadge.tsx
+========================================
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -3095,9 +3223,187 @@ export function MetricBadge({ value, className, inverted = false }: MetricBadgeP
 }
 
 
-=========================================
-FILE: apps/web/src/components/livora/RoomFilter.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/livora/HomeAwayToggle.tsx
+========================================
+import { House, Plane } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
+
+type Mode = "home" | "away";
+
+interface HomeAwayToggleProps {
+  initialMode?: Mode;
+  onChange?: (mode: Mode) => void;
+  className?: string;
+}
+
+export function HomeAwayToggle({ initialMode = "home", onChange, className }: HomeAwayToggleProps) {
+  const [mode, setMode] = useState<Mode>(initialMode);
+
+  const trackRef = useRef<HTMLDivElement>(null);
+  const homeRef = useRef<HTMLButtonElement>(null);
+  const awayRef = useRef<HTMLButtonElement>(null);
+
+  const [rects, setRects] = useState<{
+    home: { x: number; w: number };
+    away: { x: number; w: number };
+  } | null>(null);
+  const [thumb, setThumb] = useState<{ x: number; w: number }>({ x: 4, w: 0 });
+  const [dragging, setDragging] = useState(false);
+  const thumbRef = useRef(thumb);
+  const suppressClickRef = useRef(false);
+  const dragState = useRef<{ startX: number; baseX: number; moved: boolean } | null>(null);
+
+  const setMeasuredThumb = (next: { x: number; w: number }) => {
+    thumbRef.current = next;
+    setThumb(next);
+  };
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const track = trackRef.current;
+      const h = homeRef.current;
+      const a = awayRef.current;
+      if (!track || !h || !a) return;
+      const tRect = track.getBoundingClientRect();
+      const hRect = h.getBoundingClientRect();
+      const aRect = a.getBoundingClientRect();
+      setRects({
+        home: { x: hRect.left - tRect.left, w: hRect.width },
+        away: { x: aRect.left - tRect.left, w: aRect.width },
+      });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  useEffect(() => {
+    if (!rects || dragging) return;
+    setMeasuredThumb(rects[mode]);
+  }, [rects, mode, dragging]);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (!rects) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragState.current = {
+      startX: e.clientX,
+      baseX: thumbRef.current.x || rects[mode].x,
+      moved: false,
+    };
+    setDragging(true);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragState.current || !rects) return;
+    const delta = e.clientX - dragState.current.startX;
+    if (Math.abs(delta) > 3) dragState.current.moved = true;
+    const minX = rects.home.x;
+    const maxX = rects.away.x;
+    const nextX = Math.max(minX, Math.min(maxX, dragState.current.baseX + delta));
+    const progress = (nextX - minX) / Math.max(1, maxX - minX);
+    const w = rects.home.w + (rects.away.w - rects.home.w) * progress;
+    setMeasuredThumb({ x: nextX, w });
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (!dragState.current || !rects) return;
+    const mid = (rects.home.x + rects.home.w / 2 + rects.away.x + rects.away.w / 2) / 2;
+    const targetX = dragState.current.moved
+      ? thumbRef.current.x + thumbRef.current.w / 2
+      : e.clientX - e.currentTarget.getBoundingClientRect().left;
+    const next: Mode = targetX > mid ? "away" : "home";
+    
+    suppressClickRef.current = dragState.current.moved;
+    dragState.current = null;
+    setDragging(false);
+    
+    if (next !== mode) {
+      setMode(next);
+      onChange?.(next);
+    }
+    
+    window.setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 0);
+  };
+
+  const selectMode = (next: Mode) => {
+    if (suppressClickRef.current) return;
+    if (next !== mode) {
+      setMode(next);
+      onChange?.(next);
+    }
+  };
+
+  const visualActive: Mode =
+    dragging && rects
+      ? thumb.x + thumb.w / 2 > (rects.home.x + rects.home.w / 2 + rects.away.x + rects.away.w / 2) / 2
+        ? "away"
+        : "home"
+      : mode;
+
+  return (
+    <div
+      ref={trackRef}
+      role="tablist"
+      aria-label="Presence mode"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      className={cn(
+        "relative flex items-center glass rounded-full p-1 h-11 select-none touch-none bg-background/20 border border-white/10",
+        className
+      )}
+    >
+      <div
+        className={cn(
+          "absolute left-0 top-1/2 h-9 rounded-full bg-primary shadow-lg z-10",
+          !dragging && "transition-all duration-300 ease-out"
+        )}
+        style={{ transform: `translate(${thumb.x}px, -50%)`, width: thumb.w }}
+        aria-hidden
+      />
+
+      <button
+        ref={homeRef}
+        role="tab"
+        aria-selected={mode === "home"}
+        onClick={() => selectMode("home")}
+        style={{ pointerEvents: dragging ? "none" : "auto" }}
+        className={cn(
+          "relative z-20 flex items-center gap-1.5 h-9 px-4 rounded-full text-sm font-medium transition-colors outline-none",
+          visualActive === "home" ? "text-primary-foreground" : "text-muted-foreground"
+        )}
+      >
+        <House className="h-4 w-4" />
+        <span>Home</span>
+      </button>
+
+      <button
+        ref={awayRef}
+        role="tab"
+        aria-selected={mode === "away"}
+        onClick={() => selectMode("away")}
+        style={{ pointerEvents: dragging ? "none" : "auto" }}
+        className={cn(
+          "relative z-20 flex items-center gap-1.5 h-9 px-4 rounded-full text-sm font-medium transition-colors outline-none",
+          visualActive === "away" ? "text-primary-foreground" : "text-muted-foreground"
+        )}
+      >
+        <Plane className="h-4 w-4" />
+        <span>Away</span>
+      </button>
+    </div>
+  );
+}
+
+========================================
+PLIK: ./apps/web/src/components/livora/RoomFilter.tsx
+========================================
 import { cn } from "@/lib/utils";
 
 interface RoomFilterProps {
@@ -3132,9 +3438,9 @@ export function RoomFilter({ rooms, active, onChange, className }: RoomFilterPro
 }
 
 
-=========================================
-FILE: apps/web/src/components/livora/DeviceTile.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/livora/DeviceTile.tsx
+========================================
 import { LucideIcon } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { GlassCard } from "./GlassCard";
@@ -3241,9 +3547,9 @@ export function DeviceTile({
   );
 }
 
-=========================================
-FILE: apps/web/src/components/livora/ColorWheel.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/livora/ColorWheel.tsx
+========================================
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -3328,9 +3634,9 @@ export function ColorWheel({ hue, saturation, onChange, className }: ColorWheelP
   );
 }
 
-=========================================
-FILE: apps/web/src/components/livora/GlassCard.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/livora/GlassCard.tsx
+========================================
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
@@ -3360,9 +3666,9 @@ export const GlassCard = React.forwardRef<HTMLDivElement, GlassCardProps>(
 GlassCard.displayName = "GlassCard";
 
 
-=========================================
-FILE: apps/web/src/components/livora/ScenePill.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/livora/ScenePill.tsx
+========================================
 import { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -3393,9 +3699,9 @@ export function ScenePill({ icon: Icon, label, active, onClick, className }: Sce
 }
 
 
-=========================================
-FILE: apps/web/src/components/livora/AppSidebar.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/livora/AppSidebar.tsx
+========================================
 import { LayoutDashboard, Lightbulb, BarChart3, Sparkles, Settings, Home } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -3494,9 +3800,9 @@ export function AppSidebar() {
 }
 
 
-=========================================
-FILE: apps/web/src/components/livora/AppLayout.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/livora/AppLayout.tsx
+========================================
 import { Outlet } from "react-router-dom";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
@@ -3520,23 +3826,271 @@ export function AppLayout() {
 }
 
 
-=========================================
-FILE: apps/web/src/components/livora/Topbar.tsx
-=========================================
-import { Bell, Plus, Radio } from "lucide-react";
+========================================
+PLIK: ./apps/web/src/components/livora/Topbar.tsx
+========================================
+import { Bell, Plus, Radio, House, Plane, X, CheckCheck, Trash2, ShieldAlert, AlertTriangle, Info, Droplets } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Switch } from "@/components/ui/switch";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import axios from "axios";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
+// ==========================================
+// TYPY DLA POWIADOMIEŃ
+// ==========================================
+export type NotificationType = "alert" | "warning" | "info" | "leak";
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  description: string;
+  time: Date;
+  read: boolean;
+  type: NotificationType;
+}
+
+// Funkcja pomocnicza do formatowania czasu (np. "5m ago")
+const getRelativeTime = (date: Date) => {
+  const diff = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+  if (diff < 60) return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+};
+
+// ==========================================
+// KOMPONENT: PRESENCE TOGGLE
+// ==========================================
+type Mode = "home" | "away";
+
+interface PresenceToggleProps {
+  initialMode?: Mode;
+  onChange?: (mode: Mode) => void;
+  className?: string;
+}
+
+function PresenceToggle({ initialMode = "home", onChange, className }: PresenceToggleProps) {
+  const [mode, setMode] = useState<Mode>(initialMode);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const homeRef = useRef<HTMLButtonElement>(null);
+  const awayRef = useRef<HTMLButtonElement>(null);
+
+  const [rects, setRects] = useState<{
+    home: { x: number; w: number };
+    away: { x: number; w: number };
+  } | null>(null);
+  const [thumb, setThumb] = useState<{ x: number; w: number }>({ x: 4, w: 0 });
+  const [dragging, setDragging] = useState(false);
+  const thumbRef = useRef(thumb);
+  const suppressClickRef = useRef(false);
+  const dragState = useRef<{ startX: number; baseX: number; moved: boolean } | null>(null);
+
+  const setMeasuredThumb = (next: { x: number; w: number }) => {
+    thumbRef.current = next;
+    setThumb(next);
+  };
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const track = trackRef.current;
+      const h = homeRef.current;
+      const a = awayRef.current;
+      if (!track || !h || !a) return;
+      const tRect = track.getBoundingClientRect();
+      const hRect = h.getBoundingClientRect();
+      const aRect = a.getBoundingClientRect();
+      setRects({
+        home: { x: hRect.left - tRect.left, w: hRect.width },
+        away: { x: aRect.left - tRect.left, w: aRect.width },
+      });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  useEffect(() => {
+    if (!rects || dragging) return;
+    setMeasuredThumb(rects[mode]);
+  }, [rects, mode, dragging]);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (!rects) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragState.current = {
+      startX: e.clientX,
+      baseX: thumbRef.current.x || rects[mode].x,
+      moved: false,
+    };
+    setDragging(true);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragState.current || !rects) return;
+    const delta = e.clientX - dragState.current.startX;
+    if (Math.abs(delta) > 3) dragState.current.moved = true;
+    const minX = rects.home.x;
+    const maxX = rects.away.x;
+    const nextX = Math.max(minX, Math.min(maxX, dragState.current.baseX + delta));
+    const progress = (nextX - minX) / Math.max(1, maxX - minX);
+    const w = rects.home.w + (rects.away.w - rects.home.w) * progress;
+    setMeasuredThumb({ x: nextX, w });
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (!dragState.current || !rects) return;
+    const mid = (rects.home.x + rects.home.w / 2 + rects.away.x + rects.away.w / 2) / 2;
+    const targetX = dragState.current.moved
+      ? thumbRef.current.x + thumbRef.current.w / 2
+      : e.clientX - e.currentTarget.getBoundingClientRect().left;
+    const next: Mode = targetX > mid ? "away" : "home";
+    
+    suppressClickRef.current = dragState.current.moved;
+    dragState.current = null;
+    setDragging(false);
+    
+    if (next !== mode) {
+      setMode(next);
+      onChange?.(next);
+    }
+    
+    window.setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 0);
+  };
+
+  const selectMode = (next: Mode) => {
+    if (suppressClickRef.current) return;
+    if (next !== mode) {
+      setMode(next);
+      onChange?.(next);
+    }
+  };
+
+  const visualActive: Mode =
+    dragging && rects
+      ? thumb.x + thumb.w / 2 > (rects.home.x + rects.home.w / 2 + rects.away.x + rects.away.w / 2) / 2
+        ? "away"
+        : "home"
+      : mode;
+
+  return (
+    <div
+      ref={trackRef}
+      role="tablist"
+      aria-label="Presence mode"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      className={cn(
+        "relative flex items-center glass rounded-full p-1 h-11 select-none touch-none bg-background/20 border border-white/10",
+        className
+      )}
+    >
+      <div
+        className={cn(
+          "absolute left-0 top-1/2 h-9 rounded-full bg-primary shadow-lg z-10",
+          !dragging && "transition-all duration-300 ease-out"
+        )}
+        style={{ transform: `translate(${thumb.x}px, -50%)`, width: thumb.w }}
+        aria-hidden
+      />
+
+      <button
+        ref={homeRef}
+        role="tab"
+        aria-selected={mode === "home"}
+        onClick={() => selectMode("home")}
+        style={{ pointerEvents: dragging ? "none" : "auto" }}
+        className={cn(
+          "relative z-20 flex items-center gap-1.5 h-9 px-4 rounded-full text-sm font-medium transition-colors outline-none",
+          visualActive === "home" ? "text-primary-foreground" : "text-muted-foreground"
+        )}
+      >
+        <House className="h-4 w-4" />
+        <span>Home</span>
+      </button>
+
+      <button
+        ref={awayRef}
+        role="tab"
+        aria-selected={mode === "away"}
+        onClick={() => selectMode("away")}
+        style={{ pointerEvents: dragging ? "none" : "auto" }}
+        className={cn(
+          "relative z-20 flex items-center gap-1.5 h-9 px-4 rounded-full text-sm font-medium transition-colors outline-none",
+          visualActive === "away" ? "text-primary-foreground" : "text-muted-foreground"
+        )}
+      >
+        <Plane className="h-4 w-4" />
+        <span>Away</span>
+      </button>
+    </div>
+  );
+}
+
+// ==========================================
+// GŁÓWNY KOMPONENT: TOPBAR
+// ==========================================
 export function Topbar() {
-  const [home, setHome] = useState(true);
+  const [presenceMode, setPresenceMode] = useState<"home" | "away">("home");
   const [isPairing, setIsPairing] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
+  
+  // Stan dla panelu powiadomień
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  
+  // Przykładowe powiadomienia (MOCK DATA)
+  const [notifications, setNotifications] = useState<AppNotification[]>([
+    {
+      id: "1",
+      title: "Water Leak Alert!",
+      description: "Leak detected under the Kitchen Sink.",
+      time: new Date(Date.now() - 1000 * 60 * 5), // 5 min temu
+      read: false,
+      type: "leak"
+    },
+    {
+      id: "2",
+      title: "Tamper Alert",
+      description: "Front Door sensor has been tampered with.",
+      time: new Date(Date.now() - 1000 * 60 * 45), // 45 min temu
+      read: false,
+      type: "alert"
+    },
+    {
+      id: "3",
+      title: "Device Offline",
+      description: "Living Room Lamp lost connection to the network.",
+      time: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 godziny temu
+      read: true,
+      type: "warning"
+    },
+    {
+      id: "4",
+      title: "System Armed",
+      description: "Presence mode set to Away. Security systems are active.",
+      time: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 dzień temu
+      read: true,
+      type: "info"
+    }
+  ]);
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  // Nasłuchiwanie na nowe powiadomienia wysyłane z innych plików
+  useEffect(() => {
+    const handleNewNotification = (e: CustomEvent<AppNotification>) => {
+      setNotifications(prev => [e.detail, ...prev]);
+    };
+    window.addEventListener('new_app_notification', handleNewNotification as EventListener);
+    return () => window.removeEventListener('new_app_notification', handleNewNotification as EventListener);
+  }, []);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -3577,59 +4131,217 @@ export function Topbar() {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
+  const handlePresenceChange = (mode: "home" | "away") => {
+    setPresenceMode(mode);
+    
+    // Opcjonalnie: dodaj powiadomienie do historii po zmianie trybu
+    const newNotif: AppNotification = {
+      id: Date.now().toString(),
+      title: mode === "away" ? "System Armed" : "System Disarmed",
+      description: mode === "away" ? "Presence mode set to Away." : "Presence mode set to Home.",
+      time: new Date(),
+      read: false,
+      type: "info"
+    };
+    setNotifications(prev => [newNotif, ...prev]);
+  };
+
+  // Akcje panelu powiadomień
+  const markAllAsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  };
+
+  const clearAllNotifications = () => {
+    setNotifications([]);
+  };
+
+  const markAsRead = (id: string) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+  };
+
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center gap-3 px-4 md:px-8">
-      <SidebarTrigger className="rounded-xl glass h-10 w-10" />
+    <>
+      <header className="sticky top-0 z-30 flex h-16 items-center gap-3 px-4 md:px-8">
+        <SidebarTrigger className="rounded-xl glass h-11 w-11" />
 
-      <div className="hidden md:block flex-1">
-        <h2 className="font-display text-lg font-semibold leading-tight">Hi, Patryk</h2>
-        <p className="text-xs text-muted-foreground">
-          {isPairing ? `Pairing active: ${formatTime(timeLeft)}` : "Welcome home."}
-        </p>
-      </div>
-
-      <div className="ml-auto flex items-center gap-2">
-        {/* ZMIANA: justify-start zamiast justify-center, stały margines px-4 i minimalnie szerszy button */}
-        <button
-          onClick={togglePairing}
-          className={cn(
-            "flex items-center justify-start px-4 gap-2 py-2 rounded-full transition-all duration-500 w-[165px]",
-            isPairing 
-              ? "bg-orange-500 text-white animate-pulse shadow-[0_0_15px_rgba(249,115,22,0.5)]" 
-              : "glass hover:bg-muted/50 text-foreground"
-          )}
-        >
-          {isPairing ? (
-            <>
-              <Radio className="h-4 w-4 shrink-0" />
-              <span className="text-sm font-medium tabular-nums">Pairing... ({formatTime(timeLeft)})</span>
-            </>
-          ) : (
-            <>
-              <Plus className="h-4 w-4 shrink-0" />
-              <span className="text-sm font-medium text-muted-foreground">Connect Device</span>
-            </>
-          )}
-        </button>
-
-        <div className="flex items-center gap-2 glass rounded-full px-3 py-2 ml-2">
-          <span className={`text-xs font-medium ${home ? "text-foreground" : "text-muted-foreground"}`}>Home</span>
-          <Switch checked={!home} onCheckedChange={(v) => setHome(!v)} />
-          <span className={`text-xs font-medium ${!home ? "text-foreground" : "text-muted-foreground"}`}>Away</span>
+        <div className="hidden md:block flex-1">
+          <h2 className="font-display text-lg font-semibold leading-tight">Hi, Patryk</h2>
+          <p className="text-xs text-muted-foreground">
+            {isPairing ? `Pairing active: ${formatTime(timeLeft)}` : "Welcome home."}
+          </p>
         </div>
 
-        <button className="relative h-10 w-10 rounded-full glass flex items-center justify-center">
-          <Bell className="h-4 w-4" />
-          <span className="absolute top-2.5 right-2.5 h-1.5 w-1.5 rounded-full bg-accent" />
-        </button>
+        <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={togglePairing}
+            className={cn(
+              "flex items-center justify-start px-4 gap-2 h-11 rounded-full transition-all duration-500 w-[165px]",
+              isPairing 
+                ? "bg-orange-500 text-white animate-pulse shadow-[0_0_15px_rgba(249,115,22,0.5)]" 
+                : "glass text-foreground"
+            )}
+          >
+            {isPairing ? (
+              <>
+                <Radio className="h-4 w-4 shrink-0" />
+                <span className="text-sm font-medium tabular-nums">Pairing... ({formatTime(timeLeft)})</span>
+              </>
+            ) : (
+              <>
+                <Plus className="h-4 w-4 shrink-0" />
+                <span className="text-sm font-medium text-muted-foreground">Connect Device</span>
+              </>
+            )}
+          </button>
+
+          <PresenceToggle 
+            initialMode={presenceMode}
+            onChange={handlePresenceChange}
+            className="hidden sm:flex" 
+          />
+
+          <button 
+            onClick={() => setIsNotificationsOpen(true)}
+            className="relative h-11 w-11 rounded-full glass flex items-center justify-center transition-transform active:scale-95"
+          >
+            <Bell className="h-4 w-4" />
+            {/* Kropka wyświetla się tylko, gdy są nieprzeczytane powiadomienia */}
+            {unreadCount > 0 && (
+              <span className="absolute top-3 right-3 h-1.5 w-1.5 rounded-full bg-destructive shadow-[0_0_8px_rgba(229,72,77,0.8)]" />
+            )}
+          </button>
+        </div>
+      </header>
+
+      {/* ========================================== */}
+      {/* PRAWY PANEL POWIADOMIEŃ (DRAWER) */}
+      {/* ========================================== */}
+      
+      {/* Overlay - przyciemnia tło i pozwala zamknąć kliknięciem w puste miejsce */}
+      <div 
+        className={cn(
+          "fixed inset-0 z-40 bg-background/60 backdrop-blur-sm transition-opacity duration-500",
+          isNotificationsOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+        )}
+        onClick={() => setIsNotificationsOpen(false)}
+      />
+
+      {/* Właściwy panel */}
+      <div 
+        className={cn(
+          "fixed top-0 right-0 z-50 h-full w-full sm:w-[400px] glass border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out flex flex-col",
+          isNotificationsOpen ? "translate-x-0" : "translate-x-full"
+        )}
+      >
+        {/* Nagłówek panelu */}
+        <div className="flex items-center justify-between p-6 pb-4">
+          <div>
+            <h2 className="font-display text-2xl font-semibold">Notifications</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {unreadCount > 0 ? `You have ${unreadCount} unread messages` : "You're all caught up."}
+            </p>
+          </div>
+          <button 
+            onClick={() => setIsNotificationsOpen(false)} 
+            className="h-11 w-11 rounded-full glass flex items-center justify-center active:scale-95 transition-transform"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Pasek akcji */}
+        {notifications.length > 0 && (
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border/40">
+            <button 
+              onClick={markAllAsRead} 
+              disabled={unreadCount === 0}
+              className="text-sm font-medium flex items-center gap-2 text-muted-foreground active:text-foreground transition-colors disabled:opacity-50"
+            >
+              <CheckCheck className="h-4 w-4" /> Mark all as read
+            </button>
+            <button 
+              onClick={clearAllNotifications} 
+              className="text-sm font-medium flex items-center gap-2 text-destructive active:text-destructive/80 transition-colors"
+            >
+              <Trash2 className="h-4 w-4" /> Clear all
+            </button>
+          </div>
+        )}
+
+        {/* Lista powiadomień */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
+          {notifications.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center opacity-50 py-20">
+              <Bell className="h-12 w-12 mb-4" />
+              <p className="text-lg font-medium text-foreground">No notifications</p>
+              <p className="text-sm text-muted-foreground mt-1">When system alerts happen, they'll appear here.</p>
+            </div>
+          ) : (
+            notifications.map((n) => {
+              // Ustalanie ikony i koloru na podstawie typu
+              let Icon = Info;
+              let iconColor = "text-blue-500";
+              let iconBg = "bg-blue-500/10";
+
+              if (n.type === "alert") {
+                Icon = ShieldAlert;
+                iconColor = "text-destructive";
+                iconBg = "bg-destructive/10";
+              } else if (n.type === "leak") {
+                Icon = Droplets;
+                iconColor = "text-destructive";
+                iconBg = "bg-destructive/10";
+              } else if (n.type === "warning") {
+                Icon = AlertTriangle;
+                iconColor = "text-orange-500";
+                iconBg = "bg-orange-500/10";
+              }
+
+              return (
+                <div 
+                  key={n.id}
+                  onClick={() => markAsRead(n.id)}
+                  className={cn(
+                    "relative p-4 rounded-2xl transition-colors border",
+                    !n.read 
+                      ? "bg-background/60 border-border/60 shadow-sm" // Wyraźne dla nieprzeczytanych
+                      : "bg-transparent border-transparent opacity-75" // Zlewające się dla przeczytanych
+                  )}
+                >
+                  {/* Kropka nieprzeczytanego */}
+                  {!n.read && (
+                    <span className="absolute top-5 right-5 h-2 w-2 rounded-full bg-accent" />
+                  )}
+                  
+                  <div className="flex gap-4">
+                    <div className={cn("h-10 w-10 shrink-0 rounded-full flex items-center justify-center", iconBg, iconColor)}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="pr-4">
+                      <p className={cn("text-sm font-semibold", !n.read ? "text-foreground" : "text-foreground/80")}>
+                        {n.title}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                        {n.description}
+                      </p>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mt-2">
+                        {getRelativeTime(n.time)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
-    </header>
+    </>
   );
 }
 
-=========================================
-FILE: apps/web/src/components/ui/collapsible.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/collapsible.tsx
+========================================
 import * as CollapsiblePrimitive from "@radix-ui/react-collapsible";
 
 const Collapsible = CollapsiblePrimitive.Root;
@@ -3641,9 +4353,9 @@ const CollapsibleContent = CollapsiblePrimitive.CollapsibleContent;
 export { Collapsible, CollapsibleTrigger, CollapsibleContent };
 
 
-=========================================
-FILE: apps/web/src/components/ui/alert.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/alert.tsx
+========================================
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
@@ -3689,9 +4401,9 @@ AlertDescription.displayName = "AlertDescription";
 export { Alert, AlertTitle, AlertDescription };
 
 
-=========================================
-FILE: apps/web/src/components/ui/switch.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/switch.tsx
+========================================
 import * as React from "react";
 import * as SwitchPrimitives from "@radix-ui/react-switch";
 
@@ -3721,9 +4433,9 @@ Switch.displayName = SwitchPrimitives.Root.displayName;
 export { Switch };
 
 
-=========================================
-FILE: apps/web/src/components/ui/toast.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/toast.tsx
+========================================
 import * as React from "react";
 import * as ToastPrimitives from "@radix-ui/react-toast";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -3837,9 +4549,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/command.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/command.tsx
+========================================
 import * as React from "react";
 import { type DialogProps } from "@radix-ui/react-dialog";
 import { Command as CommandPrimitive } from "cmdk";
@@ -3974,9 +4686,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/pagination.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/pagination.tsx
+========================================
 import * as React from "react";
 import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 
@@ -4060,9 +4772,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/popover.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/popover.tsx
+========================================
 import * as React from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 
@@ -4094,9 +4806,9 @@ PopoverContent.displayName = PopoverPrimitive.Content.displayName;
 export { Popover, PopoverTrigger, PopoverContent };
 
 
-=========================================
-FILE: apps/web/src/components/ui/form.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/form.tsx
+========================================
 import * as React from "react";
 import * as LabelPrimitive from "@radix-ui/react-label";
 import { Slot } from "@radix-ui/react-slot";
@@ -4228,9 +4940,9 @@ FormMessage.displayName = "FormMessage";
 export { useFormField, Form, FormItem, FormLabel, FormControl, FormDescription, FormMessage, FormField };
 
 
-=========================================
-FILE: apps/web/src/components/ui/carousel.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/carousel.tsx
+========================================
 import * as React from "react";
 import useEmblaCarousel, { type UseEmblaCarouselType } from "embla-carousel-react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
@@ -4457,9 +5169,9 @@ CarouselNext.displayName = "CarouselNext";
 export { type CarouselApi, Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext };
 
 
-=========================================
-FILE: apps/web/src/components/ui/button.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/button.tsx
+========================================
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -4509,9 +5221,9 @@ Button.displayName = "Button";
 export { Button, buttonVariants };
 
 
-=========================================
-FILE: apps/web/src/components/ui/dialog.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/dialog.tsx
+========================================
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
@@ -4609,9 +5321,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/card.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/card.tsx
+========================================
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -4657,9 +5369,9 @@ CardFooter.displayName = "CardFooter";
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent };
 
 
-=========================================
-FILE: apps/web/src/components/ui/menubar.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/menubar.tsx
+========================================
 import * as React from "react";
 import * as MenubarPrimitive from "@radix-ui/react-menubar";
 import { Check, ChevronRight, Circle } from "lucide-react";
@@ -4869,9 +5581,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/radio-group.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/radio-group.tsx
+========================================
 import * as React from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { Circle } from "lucide-react";
@@ -4910,9 +5622,9 @@ RadioGroupItem.displayName = RadioGroupPrimitive.Item.displayName;
 export { RadioGroup, RadioGroupItem };
 
 
-=========================================
-FILE: apps/web/src/components/ui/progress.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/progress.tsx
+========================================
 import * as React from "react";
 import * as ProgressPrimitive from "@radix-ui/react-progress";
 
@@ -4938,9 +5650,9 @@ Progress.displayName = ProgressPrimitive.Root.displayName;
 export { Progress };
 
 
-=========================================
-FILE: apps/web/src/components/ui/chart.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/chart.tsx
+========================================
 import * as React from "react";
 import * as RechartsPrimitive from "recharts";
 
@@ -5246,9 +5958,9 @@ function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key:
 export { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, ChartStyle };
 
 
-=========================================
-FILE: apps/web/src/components/ui/avatar.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/avatar.tsx
+========================================
 import * as React from "react";
 import * as AvatarPrimitive from "@radix-ui/react-avatar";
 
@@ -5289,9 +6001,9 @@ AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName;
 export { Avatar, AvatarImage, AvatarFallback };
 
 
-=========================================
-FILE: apps/web/src/components/ui/label.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/label.tsx
+========================================
 import * as React from "react";
 import * as LabelPrimitive from "@radix-ui/react-label";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -5311,9 +6023,9 @@ Label.displayName = LabelPrimitive.Root.displayName;
 export { Label };
 
 
-=========================================
-FILE: apps/web/src/components/ui/drawer.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/drawer.tsx
+========================================
 import * as React from "react";
 import { Drawer as DrawerPrimitive } from "vaul";
 
@@ -5403,9 +6115,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/accordion.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/accordion.tsx
+========================================
 import * as React from "react";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import { ChevronDown } from "lucide-react";
@@ -5460,17 +6172,17 @@ AccordionContent.displayName = AccordionPrimitive.Content.displayName;
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent };
 
 
-=========================================
-FILE: apps/web/src/components/ui/use-toast.ts
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/use-toast.ts
+========================================
 import { useToast, toast } from "@/hooks/use-toast";
 
 export { useToast, toast };
 
 
-=========================================
-FILE: apps/web/src/components/ui/input-otp.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/input-otp.tsx
+========================================
 import * as React from "react";
 import { OTPInput, OTPInputContext } from "input-otp";
 import { Dot } from "lucide-react";
@@ -5534,9 +6246,9 @@ InputOTPSeparator.displayName = "InputOTPSeparator";
 export { InputOTP, InputOTPGroup, InputOTPSlot, InputOTPSeparator };
 
 
-=========================================
-FILE: apps/web/src/components/ui/alert-dialog.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/alert-dialog.tsx
+========================================
 import * as React from "react";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 
@@ -5643,9 +6355,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/table.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/table.tsx
+========================================
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -5720,9 +6432,9 @@ TableCaption.displayName = "TableCaption";
 export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption };
 
 
-=========================================
-FILE: apps/web/src/components/ui/resizable.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/resizable.tsx
+========================================
 import { GripVertical } from "lucide-react";
 import * as ResizablePrimitive from "react-resizable-panels";
 
@@ -5762,9 +6474,9 @@ const ResizableHandle = ({
 export { ResizablePanelGroup, ResizablePanel, ResizableHandle };
 
 
-=========================================
-FILE: apps/web/src/components/ui/toaster.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/toaster.tsx
+========================================
 import { useToast } from "@/hooks/use-toast";
 import { Toast, ToastClose, ToastDescription, ToastProvider, ToastTitle, ToastViewport } from "@/components/ui/toast";
 
@@ -5791,9 +6503,9 @@ export function Toaster() {
 }
 
 
-=========================================
-FILE: apps/web/src/components/ui/navigation-menu.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/navigation-menu.tsx
+========================================
 import * as React from "react";
 import * as NavigationMenuPrimitive from "@radix-ui/react-navigation-menu";
 import { cva } from "class-variance-authority";
@@ -5916,9 +6628,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/sheet.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/sheet.tsx
+========================================
 import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { cva, type VariantProps } from "class-variance-authority";
 import { X } from "lucide-react";
@@ -6028,9 +6740,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/toggle.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/toggle.tsx
+========================================
 import * as React from "react";
 import * as TogglePrimitive from "@radix-ui/react-toggle";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -6070,9 +6782,9 @@ Toggle.displayName = TogglePrimitive.Root.displayName;
 export { Toggle, toggleVariants };
 
 
-=========================================
-FILE: apps/web/src/components/ui/context-menu.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/context-menu.tsx
+========================================
 import * as React from "react";
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { Check, ChevronRight, Circle } from "lucide-react";
@@ -6253,9 +6965,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/textarea.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/textarea.tsx
+========================================
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -6279,9 +6991,9 @@ Textarea.displayName = "Textarea";
 export { Textarea };
 
 
-=========================================
-FILE: apps/web/src/components/ui/skeleton.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/skeleton.tsx
+========================================
 import { cn } from "@/lib/utils";
 
 function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
@@ -6291,9 +7003,9 @@ function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>)
 export { Skeleton };
 
 
-=========================================
-FILE: apps/web/src/components/ui/breadcrumb.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/breadcrumb.tsx
+========================================
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { ChevronRight, MoreHorizontal } from "lucide-react";
@@ -6386,9 +7098,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/toggle-group.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/toggle-group.tsx
+========================================
 import * as React from "react";
 import * as ToggleGroupPrimitive from "@radix-ui/react-toggle-group";
 import { type VariantProps } from "class-variance-authority";
@@ -6440,9 +7152,9 @@ ToggleGroupItem.displayName = ToggleGroupPrimitive.Item.displayName;
 export { ToggleGroup, ToggleGroupItem };
 
 
-=========================================
-FILE: apps/web/src/components/ui/dropdown-menu.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/dropdown-menu.tsx
+========================================
 import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { Check, ChevronRight, Circle } from "lucide-react";
@@ -6624,9 +7336,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/hover-card.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/hover-card.tsx
+========================================
 import * as React from "react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 
@@ -6656,9 +7368,9 @@ HoverCardContent.displayName = HoverCardPrimitive.Content.displayName;
 export { HoverCard, HoverCardTrigger, HoverCardContent };
 
 
-=========================================
-FILE: apps/web/src/components/ui/input.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/input.tsx
+========================================
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -6683,9 +7395,9 @@ Input.displayName = "Input";
 export { Input };
 
 
-=========================================
-FILE: apps/web/src/components/ui/sonner.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/sonner.tsx
+========================================
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, toast } from "sonner";
 
@@ -6715,9 +7427,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
 export { Toaster, toast };
 
 
-=========================================
-FILE: apps/web/src/components/ui/aspect-ratio.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/aspect-ratio.tsx
+========================================
 import * as AspectRatioPrimitive from "@radix-ui/react-aspect-ratio";
 
 const AspectRatio = AspectRatioPrimitive.Root;
@@ -6725,9 +7437,9 @@ const AspectRatio = AspectRatioPrimitive.Root;
 export { AspectRatio };
 
 
-=========================================
-FILE: apps/web/src/components/ui/slider.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/slider.tsx
+========================================
 import * as React from "react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 
@@ -6753,9 +7465,9 @@ Slider.displayName = SliderPrimitive.Root.displayName;
 export { Slider };
 
 
-=========================================
-FILE: apps/web/src/components/ui/scroll-area.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/scroll-area.tsx
+========================================
 import * as React from "react";
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 
@@ -6796,9 +7508,9 @@ ScrollBar.displayName = ScrollAreaPrimitive.ScrollAreaScrollbar.displayName;
 export { ScrollArea, ScrollBar };
 
 
-=========================================
-FILE: apps/web/src/components/ui/badge.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/badge.tsx
+========================================
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
@@ -6830,9 +7542,9 @@ function Badge({ className, variant, ...props }: BadgeProps) {
 export { Badge, badgeVariants };
 
 
-=========================================
-FILE: apps/web/src/components/ui/sidebar.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/sidebar.tsx
+========================================
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { VariantProps, cva } from "class-variance-authority";
@@ -7472,9 +8184,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/tabs.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/tabs.tsx
+========================================
 import * as React from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 
@@ -7530,9 +8242,9 @@ TabsContent.displayName = TabsPrimitive.Content.displayName;
 export { Tabs, TabsList, TabsTrigger, TabsContent };
 
 
-=========================================
-FILE: apps/web/src/components/ui/separator.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/separator.tsx
+========================================
 import * as React from "react";
 import * as SeparatorPrimitive from "@radix-ui/react-separator";
 
@@ -7555,9 +8267,9 @@ Separator.displayName = SeparatorPrimitive.Root.displayName;
 export { Separator };
 
 
-=========================================
-FILE: apps/web/src/components/ui/checkbox.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/checkbox.tsx
+========================================
 import * as React from "react";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import { Check } from "lucide-react";
@@ -7586,9 +8298,9 @@ Checkbox.displayName = CheckboxPrimitive.Root.displayName;
 export { Checkbox };
 
 
-=========================================
-FILE: apps/web/src/components/ui/tooltip.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/tooltip.tsx
+========================================
 import * as React from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 
@@ -7619,9 +8331,9 @@ TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
 
 
-=========================================
-FILE: apps/web/src/components/ui/select.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/select.tsx
+========================================
 import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
@@ -7767,9 +8479,9 @@ export {
 };
 
 
-=========================================
-FILE: apps/web/src/components/ui/calendar.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/components/ui/calendar.tsx
+========================================
 import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { DayPicker } from "react-day-picker";
@@ -7826,9 +8538,9 @@ Calendar.displayName = "Calendar";
 export { Calendar };
 
 
-=========================================
-FILE: apps/web/src/main.tsx
-=========================================
+========================================
+PLIK: ./apps/web/src/main.tsx
+========================================
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
@@ -7836,9 +8548,9 @@ import "./index.css";
 createRoot(document.getElementById("root")!).render(<App />);
 
 
-=========================================
-FILE: apps/web/vite.config.ts
-=========================================
+========================================
+PLIK: ./apps/web/vite.config.ts
+========================================
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -7862,4 +8574,516 @@ export default defineConfig(({ mode }) => ({
   },
 }));
 
+
+========================================
+PLIK: ./apps/backend/src/api.ts
+========================================
+import express from 'express';
+import cors from 'cors';
+import pool from './db';
+import * as mqtt from 'mqtt';
+import http from 'http';
+import { Server } from 'socket.io';
+
+const app = express();
+const mqttClient = mqtt.connect('mqtt://localhost:1883');
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: '*',
+        methods: ['GET', 'POST']
+    }
+});
+
+app.use(cors());
+app.use(express.json());
+
+io.on('connection', (socket) => {
+    console.log('New client connected to WebSockets');
+
+    socket.on('disconnect', () => {
+        console.log('Client disconnected from WebSockets');
+    });
+});
+
+export const emitDeviceState = (friendlyName: string, payload: any) => {
+    io.emit('device_state_update', { friendlyName, payload });
+};
+
+export const emitDevicesUpdated = () => {
+    io.emit('device_list_updated');
+};
+
+// ==========================================
+// ENERGY STATS
+// ==========================================
+app.get('/api/energy/stats', async (req, res) => {
+    try {
+        // 1. Zużycie dzisiaj w kWh (zostaje po staremu dla wielkiej liczby na ekranie)
+        const todayResult = await pool.query(`
+            SELECT COALESCE(MAX(value) - MIN(value), 0) AS usage 
+            FROM energy_readings 
+            WHERE timestamp >= CURRENT_DATE
+        `);
+        const todayKwh = parseFloat(todayResult.rows[0].usage);
+
+        // 2. Zużycie wczoraj w kWh (do strzałki procentowej)
+        const yesterdayResult = await pool.query(`
+            SELECT COALESCE(MAX(value) - MIN(value), 0) AS usage 
+            FROM energy_readings 
+            WHERE timestamp >= CURRENT_DATE - INTERVAL '1 day' 
+              AND timestamp < CURRENT_DATE
+        `);
+        const yesterdayKwh = parseFloat(yesterdayResult.rows[0].usage);
+
+        // 3. NOWOŚĆ: Moc na żywo (Waty) z ostatnich 60 minut do wykresu falowego
+        const historyResult = await pool.query(`
+            SELECT total_power
+            FROM power_readings
+            WHERE timestamp >= NOW() - INTERVAL '60 minutes'
+            ORDER BY timestamp ASC
+        `);
+
+        let history60m = historyResult.rows.map((row: any) => parseFloat(row.total_power));
+
+        // Uzupełniamy zerami, jeśli baza działa krócej niż 60 minut
+        while (history60m.length < 60) {
+            history60m.unshift(0);
+        }
+        
+        // Zabezpieczenie na wypadek nadmiarowych danych
+        if (history60m.length > 60) {
+            history60m = history60m.slice(-60);
+        }
+
+        res.json({
+            todayKwh: todayKwh.toFixed(2),
+            yesterdayKwh: yesterdayKwh.toFixed(2),
+            history60m: history60m
+        });
+
+    } catch (error) {
+        console.error("Błąd podczas pobierania statystyk energii:", error);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+// ==========================================
+// POKOJE (ROOMS)
+// ==========================================
+app.get('/api/rooms', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM rooms ORDER BY id ASC');
+        res.json(result.rows);
+    } catch (error) {
+        console.error('API Error:', error);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.post('/api/rooms', async (req, res) => {
+    const { name } = req.body;
+    if (!name || name.trim() === '') return res.status(400).json({ error: 'Name required' });
+    
+    try {
+        const result = await pool.query(
+            'INSERT INTO rooms (name) VALUES ($1) RETURNING *',
+            [name.trim()]
+        );
+        res.json(result.rows[0]);
+    } catch (error: any) {
+        if (error.code === '23505') { 
+            return res.status(400).json({ error: 'Room already exists' });
+        }
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.delete('/api/rooms/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query('DELETE FROM rooms WHERE id = $1', [id]);
+        emitDevicesUpdated(); 
+        res.json({ message: 'Room deleted' });
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// ==========================================
+// URZĄDZENIA (DEVICES)
+// ==========================================
+app.get('/api/devices', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT d.*, r.name as room_name, t.payload as last_payload 
+            FROM devices d
+            LEFT JOIN rooms r ON d.room_id = r.id
+            LEFT JOIN LATERAL (
+                SELECT payload FROM telemetry
+                WHERE device_id = d.id
+                ORDER BY time DESC
+                LIMIT 1
+            ) t ON true
+            ORDER BY d.last_seen DESC
+        `);
+        res.json(result.rows);
+    } catch (error) {
+        console.error('API Error:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+app.put('/api/devices/:friendly_name/room', async (req, res) => {
+    const { friendly_name } = req.params;
+    const { room_id } = req.body; 
+    
+    try {
+        await pool.query(
+            'UPDATE devices SET room_id = $1 WHERE friendly_name = $2',
+            [room_id, friendly_name]
+        );
+        emitDevicesUpdated();
+        res.json({ message: 'Room assigned' });
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// ==========================================
+// MOST ZIGBEE (BRIDGE & STEROWANIE)
+// ==========================================
+app.post('/api/bridge/permit_join', (req, res) => {
+    const { permit } = req.body; 
+    
+    const topic = 'zigbee2mqtt/bridge/request/permit_join';
+    const payload = JSON.stringify({ 
+        value: permit, 
+        time: permit ? 180 : 0 
+    });
+
+    mqttClient.publish(topic, payload, (err) => {
+        if (err) {
+            console.error('Permit join error:', err);
+            return res.status(500).json({ error: 'Błąd MQTT' });
+        }
+        res.json({ message: 'Net mode changed', permit });
+    });
+});
+
+app.post('/api/devices/:friendly_name/set', (req, res) => {
+    const { friendly_name } = req.params;
+    const payload = req.body;
+
+    const topic = `zigbee2mqtt/${friendly_name}/set`;
+
+    mqttClient.publish(topic, JSON.stringify(payload), (err) => {
+        if (err) {
+            console.error(`Failed to publish to ${friendly_name}:`, err);
+            return res.status(500).json({ error: 'Comunication Error' });
+        }
+
+        console.log(`Command sent to [${friendly_name}]:`, payload);
+        res.json({ message: 'Successfully sent command', topic, payload });
+    });
+});
+
+app.delete('/api/devices/:friendly_name', async (req, res) => {
+    const { friendly_name } = req.params;
+
+    const topic = 'zigbee2mqtt/bridge/request/device/remove';
+    const payload = JSON.stringify({ id: friendly_name, force: true });
+
+    mqttClient.publish(topic, payload, async (err) => {
+        if (err) {
+            console.error(`Błąd MQTT podczas usuwania ${friendly_name}:`, err);
+            return res.status(500).json({ error: 'Błąd komunikacji MQTT' });
+        }
+
+        try {
+            const devResult = await pool.query('SELECT id FROM devices WHERE friendly_name = $1', [friendly_name]);
+            
+            if (devResult.rows.length > 0) {
+                const deviceId = devResult.rows[0].id;
+                await pool.query('DELETE FROM telemetry WHERE device_id = $1', [deviceId]);
+                await pool.query('DELETE FROM devices WHERE id = $1', [deviceId]);
+            }
+
+            console.log(`Device [${friendly_name}] deleted.`);
+            
+            emitDevicesUpdated();
+            
+            res.json({ message: 'Device deleted' });
+        } catch (dbError) {
+            console.error('Database error during deleting:', dbError);
+            res.status(500).json({ error: 'Database error' });
+        }
+    });
+});
+
+app.put('/api/devices/:friendly_name/rename', (req, res) => {
+    const { friendly_name } = req.params;
+    const { new_name } = req.body;
+
+    if (!new_name || new_name.trim() === '') {
+        return res.status(400).json({ error: 'Name can not be empty' });
+    }
+
+    const topic = 'zigbee2mqtt/bridge/request/device/rename';
+    const payload = JSON.stringify({ 
+        from: friendly_name, 
+        to: new_name 
+    });
+
+    mqttClient.publish(topic, payload, (err) => {
+        if (err) {
+            console.error(`Error while changing device name from ${friendly_name} to ${new_name}:`, err);
+            return res.status(500).json({ error: 'Communication error' });
+        }
+        
+        console.log(`Changing device name: [${friendly_name}] -> [${new_name}]`);
+        res.json({ message: 'Changing device name' });
+    });
+});
+
+export const startAPI = () => {
+    const PORT = 3000;
+    server.listen(PORT, '0.0.0.0', () => {
+        console.log(`API server & WebSocket running on port ${PORT}`);
+    });
+};
+
+========================================
+PLIK: ./apps/backend/src/index.ts
+========================================
+import * as mqtt from 'mqtt';
+import pool, { initDB } from './db';
+import { startAPI, emitDeviceState, emitDevicesUpdated } from './api';
+
+const start = async () => {
+    await initDB();
+    startAPI();
+
+    const client = mqtt.connect('mqtt://localhost:1883');
+
+    // W PĘTLI CO 60 SEKUND: Zapisujemy całkowity pobór mocy wszystkich urządzeń
+    setInterval(async () => {
+        try {
+            // Szukamy najświeższego statusu każdego urządzenia zawierającego 'power'
+            const result = await pool.query(`
+                SELECT payload->>'power' as power 
+                FROM (
+                    SELECT DISTINCT ON (device_id) payload
+                    FROM telemetry
+                    WHERE payload ? 'power'
+                    ORDER BY device_id, time DESC
+                ) t
+            `);
+            
+            // Sumujemy moc (W)
+            const totalPower = result.rows.reduce((sum, row) => sum + (parseFloat(row.power) || 0), 0);
+            
+            // Zapisujemy punkt do wykresu
+            await pool.query('INSERT INTO power_readings (total_power) VALUES ($1)', [totalPower]);
+            
+            // Usuwamy dane starsze niż 2 godziny, żeby zachować czystość w bazie
+            await pool.query(`DELETE FROM power_readings WHERE timestamp < NOW() - INTERVAL '2 hours'`);
+        } catch (error) {
+            console.error('Błąd zapisu historii mocy:', error);
+        }
+    }, 60000);
+
+    client.on('connect', () => {
+        console.log('Connected with MQTT');
+        client.subscribe('zigbee2mqtt/bridge/devices');
+        client.subscribe('zigbee2mqtt/#');
+    });
+
+    client.on('message', async (topic, message) => {
+        try {
+            const rawPayload = message.toString();
+            let data: any;
+            
+            try {
+                data = JSON.parse(rawPayload);
+            } catch (e) {
+                data = { state: rawPayload };
+            }
+            
+            if (topic === 'zigbee2mqtt/bridge/devices') {
+                for (const device of data) {
+                    if (device.type === 'Coordinator') continue;
+
+                    const id = device.ieee_address;
+                    const friendlyName = device.friendly_name;
+                    const exposes = JSON.stringify(device.definition?.exposes || []);
+
+                    await pool.query(`
+                        INSERT INTO devices (id, friendly_name, exposes, last_seen)
+                        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                        ON CONFLICT (id) DO UPDATE 
+                        SET friendly_name = EXCLUDED.friendly_name, 
+                            exposes = EXCLUDED.exposes,
+                            last_seen = CURRENT_TIMESTAMP;
+                    `, [id, friendlyName, exposes]);
+                }
+
+                console.log('Devices updated');
+                emitDevicesUpdated();
+                return;
+            }
+
+            if (topic.startsWith('zigbee2mqtt/bridge')) return;
+
+            let friendlyName = topic.replace('zigbee2mqtt/', '');
+            let isAvailability = false;
+
+            if (friendlyName.endsWith('/availability')) {
+                friendlyName = friendlyName.replace('/availability', '');
+                isAvailability = true;
+            }
+
+            const deviceResult = await pool.query(
+                'SELECT id FROM devices WHERE friendly_name = $1',
+                [friendlyName]
+            );
+
+            if (deviceResult.rows.length > 0) {
+                const deviceId = deviceResult.rows[0].id;
+                
+                const lastTelemetry = await pool.query(`
+                    SELECT payload FROM telemetry WHERE device_id = $1 ORDER BY time DESC LIMIT 1
+                `, [deviceId]);
+                
+                let mergedPayload = lastTelemetry.rows.length > 0 ? lastTelemetry.rows[0].payload : {};
+
+                if (isAvailability) {
+                    const stateValue = data.state || data;
+                    const availabilityStatus = typeof stateValue === 'string' ? stateValue.toLowerCase() : 'offline';
+                    
+                    mergedPayload = { 
+                        ...mergedPayload, 
+                        availability: availabilityStatus,
+                        state: availabilityStatus === 'offline' ? 'OFFLINE' : mergedPayload.state 
+                    };
+                } else {
+                    mergedPayload = { ...mergedPayload, ...data, availability: 'online' };
+                    
+                    if (mergedPayload.state === 'OFFLINE' || mergedPayload.state === 'offline') {
+                        delete mergedPayload.state;
+                        if (data.state !== undefined) mergedPayload.state = data.state;
+                    }
+                }
+
+                await pool.query(`
+                    INSERT INTO telemetry (time, device_id, payload)
+                    VALUES (CURRENT_TIMESTAMP, $1, $2)
+                `, [deviceId, JSON.stringify(mergedPayload)]);
+
+                if (data.energy !== undefined) {
+                    try {
+                        await pool.query(`
+                            INSERT INTO energy_readings (device_name, value, timestamp) 
+                            VALUES ($1, $2, CURRENT_TIMESTAMP)
+                        `, [friendlyName, data.energy]);
+                    } catch (err) {
+                        console.error(`Błąd zapisu energii (kWh) do bazy:`, err);
+                    }
+                }
+
+                if (isAvailability) {
+                    console.log(`[Availability] Device [${friendlyName}] is now ${mergedPayload.availability}`);
+                }
+                
+                emitDeviceState(friendlyName, mergedPayload);
+            }
+        } catch (error) {
+            console.error(`Error processing message: ${topic}`, error);
+        }
+    });
+};
+
+start();
+
+========================================
+PLIK: ./apps/backend/src/db.ts
+========================================
+import { Pool } from 'pg';
+
+const pool = new Pool({
+    user: 'smarthome_user',
+    host: 'localhost',
+    database: 'smarthome_db',
+    password: 'haslo123',
+    port: 5432,
+});
+
+export const initDB = async () => {
+    const client = await pool.connect();
+    try {
+        console.log('Initializing database');
+        
+        // 1. Pokoje
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS rooms (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) UNIQUE NOT NULL
+            );
+        `);
+
+        // 2. Urządzenia
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS devices (
+                id VARCHAR(255) PRIMARY KEY,
+                friendly_name VARCHAR(255) NOT NULL,
+                exposes JSONB,
+                last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        await client.query(`
+            ALTER TABLE devices 
+            ADD COLUMN IF NOT EXISTS room_id INTEGER REFERENCES rooms(id) ON DELETE SET NULL;
+        `);
+
+        // 3. Telemetria
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS telemetry (
+                time TIMESTAMPTZ NOT NULL,
+                device_id VARCHAR(255) REFERENCES devices(id) ON DELETE CASCADE,
+                payload JSONB NOT NULL
+            );
+        `);
+
+        await client.query(`
+            SELECT create_hypertable('telemetry', 'time', if_not_exists => TRUE);
+        `);
+
+        // 4. Historia zużycia energii (dzienna w kWh)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS energy_readings (
+                id SERIAL PRIMARY KEY,
+                device_name TEXT NOT NULL,
+                value FLOAT NOT NULL,
+                timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // 5. Historia poboru mocy na żywo (Waty do wykresu)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS power_readings (
+                id SERIAL PRIMARY KEY,
+                total_power FLOAT NOT NULL,
+                timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+    } catch (error) {
+        console.error('Initialization error:', error);
+    } finally {
+        client.release();
+    }
+};
+
+export default pool;
 

@@ -8,9 +8,36 @@ const start = async () => {
 
     const client = mqtt.connect('mqtt://localhost:1883');
 
+    // W PĘTLI CO 60 SEKUND: Zapisujemy całkowity pobór mocy wszystkich urządzeń
+    setInterval(async () => {
+        try {
+            // Szukamy najświeższego statusu każdego urządzenia zawierającego 'power'
+            const result = await pool.query(`
+                SELECT payload->>'power' as power 
+                FROM (
+                    SELECT DISTINCT ON (device_id) payload
+                    FROM telemetry
+                    WHERE payload ? 'power'
+                    ORDER BY device_id, time DESC
+                ) t
+            `);
+            
+            // Sumujemy moc (W)
+            const totalPower = result.rows.reduce((sum, row) => sum + (parseFloat(row.power) || 0), 0);
+            
+            // Zapisujemy punkt do wykresu
+            await pool.query('INSERT INTO power_readings (total_power) VALUES ($1)', [totalPower]);
+            
+            // Usuwamy dane starsze niż 2 godziny, żeby zachować czystość w bazie
+            await pool.query(`DELETE FROM power_readings WHERE timestamp < NOW() - INTERVAL '2 hours'`);
+        } catch (error) {
+            console.error('Błąd zapisu historii mocy:', error);
+        }
+    }, 60000);
+
     client.on('connect', () => {
         console.log('Connected with MQTT');
-        client.subscribe('zigbee2mqtt/bridge/devices')
+        client.subscribe('zigbee2mqtt/bridge/devices');
         client.subscribe('zigbee2mqtt/#');
     });
 
@@ -19,14 +46,12 @@ const start = async () => {
             const rawPayload = message.toString();
             let data: any;
             
-            // 1. Bezpieczne parsowanie (Z2M często wysyła plain text dla availability)
             try {
                 data = JSON.parse(rawPayload);
             } catch (e) {
                 data = { state: rawPayload };
             }
             
-            // Dynamiczne wykrywanie urządzeń
             if (topic === 'zigbee2mqtt/bridge/devices') {
                 for (const device of data) {
                     if (device.type === 'Coordinator') continue;
@@ -52,7 +77,6 @@ const start = async () => {
 
             if (topic.startsWith('zigbee2mqtt/bridge')) return;
 
-            // 2. Analiza tematu (czy to główny temat czy /availability)
             let friendlyName = topic.replace('zigbee2mqtt/', '');
             let isAvailability = false;
 
@@ -69,12 +93,10 @@ const start = async () => {
             if (deviceResult.rows.length > 0) {
                 const deviceId = deviceResult.rows[0].id;
                 
-                // 3. Pobranie ostatniej telemetrii, by nie zgubić danych (np. czy to gniazdko)
                 const lastTelemetry = await pool.query(`
                     SELECT payload FROM telemetry WHERE device_id = $1 ORDER BY time DESC LIMIT 1
                 `, [deviceId]);
                 
-                // pg automatycznie parsuje typ JSONB do obiektu
                 let mergedPayload = lastTelemetry.rows.length > 0 ? lastTelemetry.rows[0].payload : {};
 
                 if (isAvailability) {
@@ -89,19 +111,27 @@ const start = async () => {
                 } else {
                     mergedPayload = { ...mergedPayload, ...data, availability: 'online' };
                     
-                    // Czyszczenie fałszywego statusu offline jeśli urządzenie wysłało nowy payload
                     if (mergedPayload.state === 'OFFLINE' || mergedPayload.state === 'offline') {
                         delete mergedPayload.state;
-                        // Przywrócenie payloadu do poprzedniego stanu
                         if (data.state !== undefined) mergedPayload.state = data.state;
                     }
                 }
 
-                // 4. Zapis połączonego payloadu
                 await pool.query(`
                     INSERT INTO telemetry (time, device_id, payload)
                     VALUES (CURRENT_TIMESTAMP, $1, $2)
                 `, [deviceId, JSON.stringify(mergedPayload)]);
+
+                if (data.energy !== undefined) {
+                    try {
+                        await pool.query(`
+                            INSERT INTO energy_readings (device_name, value, timestamp) 
+                            VALUES ($1, $2, CURRENT_TIMESTAMP)
+                        `, [friendlyName, data.energy]);
+                    } catch (err) {
+                        console.error(`Błąd zapisu energii (kWh) do bazy:`, err);
+                    }
+                }
 
                 if (isAvailability) {
                     console.log(`[Availability] Device [${friendlyName}] is now ${mergedPayload.availability}`);

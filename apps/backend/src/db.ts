@@ -13,7 +13,7 @@ export const initDB = async () => {
     try {
         console.log('Initializing database');
         
-        // 1. Nowa tabela: Pokoje
+        // 1. Pokoje
         await client.query(`
             CREATE TABLE IF NOT EXISTS rooms (
                 id SERIAL PRIMARY KEY,
@@ -21,7 +21,7 @@ export const initDB = async () => {
             );
         `);
 
-        // 2. Tabela: Urządzenia (rozszerzona)
+        // 2. Urządzenia
         await client.query(`
             CREATE TABLE IF NOT EXISTS devices (
                 id VARCHAR(255) PRIMARY KEY,
@@ -31,13 +31,12 @@ export const initDB = async () => {
             );
         `);
 
-        // Dodanie kolumny room_id (jeśli już wcześniej miałeś utworzoną tabelę devices)
         await client.query(`
             ALTER TABLE devices 
             ADD COLUMN IF NOT EXISTS room_id INTEGER REFERENCES rooms(id) ON DELETE SET NULL;
         `);
 
-        // 3. Tabela: Telemetria
+        // 3. Telemetria
         await client.query(`
             CREATE TABLE IF NOT EXISTS telemetry (
                 time TIMESTAMPTZ NOT NULL,
@@ -49,6 +48,26 @@ export const initDB = async () => {
         await client.query(`
             SELECT create_hypertable('telemetry', 'time', if_not_exists => TRUE);
         `);
+
+        // 4. Historia zużycia energii (dzienna w kWh)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS energy_readings (
+                id SERIAL PRIMARY KEY,
+                device_name TEXT NOT NULL,
+                value FLOAT NOT NULL,
+                timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // 5. Historia poboru mocy na żywo (Waty do wykresu)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS power_readings (
+                id SERIAL PRIMARY KEY,
+                total_power FLOAT NOT NULL,
+                timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
     } catch (error) {
         console.error('Initialization error:', error);
     } finally {
