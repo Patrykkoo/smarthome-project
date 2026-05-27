@@ -338,6 +338,7 @@ const Dashboard = () => {
               </div>
             </div>
           </div>
+
           <div className="mt-8 grid grid-cols-2 gap-4">
             <div className="rounded-2xl bg-background/50 p-4">
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground truncate">

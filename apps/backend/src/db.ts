@@ -13,7 +13,6 @@ export const initDB = async () => {
     try {
         console.log('Initializing database');
         
-        // 1. Pokoje
         await client.query(`
             CREATE TABLE IF NOT EXISTS rooms (
                 id SERIAL PRIMARY KEY,
@@ -21,7 +20,6 @@ export const initDB = async () => {
             );
         `);
 
-        // 2. Urządzenia
         await client.query(`
             CREATE TABLE IF NOT EXISTS devices (
                 id VARCHAR(255) PRIMARY KEY,
@@ -36,7 +34,6 @@ export const initDB = async () => {
             ADD COLUMN IF NOT EXISTS room_id INTEGER REFERENCES rooms(id) ON DELETE SET NULL;
         `);
 
-        // 3. Telemetria
         await client.query(`
             CREATE TABLE IF NOT EXISTS telemetry (
                 time TIMESTAMPTZ NOT NULL,
@@ -49,7 +46,6 @@ export const initDB = async () => {
             SELECT create_hypertable('telemetry', 'time', if_not_exists => TRUE);
         `);
 
-        // 4. Historia zużycia energii (dzienna w kWh)
         await client.query(`
             CREATE TABLE IF NOT EXISTS energy_readings (
                 id SERIAL PRIMARY KEY,
@@ -59,12 +55,47 @@ export const initDB = async () => {
             );
         `);
 
-        // 5. Historia poboru mocy na żywo (Waty do wykresu)
         await client.query(`
             CREATE TABLE IF NOT EXISTS power_readings (
                 id SERIAL PRIMARY KEY,
                 total_power FLOAT NOT NULL,
                 timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS scenes (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                icon VARCHAR(50) DEFAULT 'Sparkles',
+                color VARCHAR(50) DEFAULT 'from-primary/50 to-primary/20',
+                actions JSONB DEFAULT '[]'::jsonb,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        const sceneCount = await client.query('SELECT COUNT(*) FROM scenes');
+        if (parseInt(sceneCount.rows[0].count) === 0) {
+            console.log('Seeding default scenes...');
+            await client.query(`
+                INSERT INTO scenes (name, icon, color, actions) VALUES
+                ('Good Morning', 'Coffee', 'from-amber-200/50 to-yellow-100/30', '[]'),
+                ('Goodnight', 'Moon', 'from-slate-300/40 to-blue-200/30', '[]'),
+                ('Relax', 'Sparkles', 'from-pink-200/50 to-purple-200/30', '[]')
+            `);
+        }
+
+        // TABELA AUTOMATYZACJI
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS automations (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                is_enabled BOOLEAN DEFAULT true,
+                trigger_type VARCHAR(50), 
+                trigger_config JSONB, 
+                condition_config JSONB,
+                action_config JSONB,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             );
         `);
 

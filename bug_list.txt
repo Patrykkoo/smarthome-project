@@ -22,3 +22,22 @@ długość w zaleności od wielkości cyfr.
 
 10. Wybór lokalizacji do pogody w ustawieniach.
 
+11. Część ikon powiadomień jest inna
+
+12. Przy zwęzonym oknie nie widać trybu Home/Away
+
+13. Przy zwezonym oknie menu powiadomien nie powinno byc na caly ekran
+
+14. Skontrolować i poprawić spójnie odległości między elementami
+
+15. Powiadomienie o usunięciu urządzenia
+
+16. Przycisk Pairing Mode zmienia długość po kliknięciu
+
+17. Scena przestaje być aktywna po wyjściu z zakładki i odświezeniu strony
+
+18. Przy tworzeniu sceny/automatyzacji powiadomienia muszą być takie same (brak nazwy itd.)
+
+19. Przy trybie away gdy się otworzy okno to wyskakuje powiadomienie i nie znika mimo zamknięcia okna
+
+20. Po odświezeniu aplikacji tryb sam wraca z away na home

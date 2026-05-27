@@ -20,7 +20,6 @@ app.use(express.json());
 
 io.on('connection', (socket) => {
     console.log('New client connected to WebSockets');
-
     socket.on('disconnect', () => {
         console.log('Client disconnected from WebSockets');
     });
@@ -34,29 +33,75 @@ export const emitDevicesUpdated = () => {
     io.emit('device_list_updated');
 };
 
+// NOWA FUNKCJA: Emitowanie sygnału o dołączeniu nowego urządzenia
+export const emitDeviceJoined = (friendlyName: string) => {
+    io.emit('device_joined', { friendlyName });
+};
+
 // ==========================================
-// ENERGY STATS
+// SYSTEM (PRESENCE MODE DLA AUTOMATYZACJI)
+// ==========================================
+export let currentPresenceMode = 'home';
+export const automationNotifier = { onUpdate: () => {} };
+
+app.get('/api/presence', (req, res) => {
+    res.json({ mode: currentPresenceMode });
+});
+
+app.post('/api/presence', (req, res) => {
+    currentPresenceMode = req.body.mode || 'home';
+    res.json({ mode: currentPresenceMode });
+});
+
+// ==========================================
+// ENERGY STATS (Zastosowanie LAG do likwidacji przerw nocnych)
 // ==========================================
 app.get('/api/energy/stats', async (req, res) => {
     try {
-        // 1. Zużycie dzisiaj w kWh (zostaje po staremu dla wielkiej liczby na ekranie)
         const todayResult = await pool.query(`
-            SELECT COALESCE(MAX(value) - MIN(value), 0) AS usage 
-            FROM energy_readings 
-            WHERE timestamp >= CURRENT_DATE
+            WITH daily_agg AS (
+                SELECT device_name,
+                       (timestamp AT TIME ZONE 'Europe/Warsaw')::date as date_val,
+                       MIN(value) as min_val,
+                       MAX(value) as max_val
+                FROM energy_readings
+                WHERE timestamp >= (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Warsaw')::date - INTERVAL '7 days'
+                GROUP BY device_name, date_val
+            ),
+            diffs AS (
+                SELECT device_name,
+                       date_val,
+                       GREATEST(0, max_val - LAG(max_val, 1, min_val) OVER (PARTITION BY device_name ORDER BY date_val)) as usage
+                FROM daily_agg
+            )
+            SELECT COALESCE(SUM(usage), 0) AS usage 
+            FROM diffs 
+            WHERE date_val = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Warsaw')::date
         `);
         const todayKwh = parseFloat(todayResult.rows[0].usage);
 
-        // 2. Zużycie wczoraj w kWh (do strzałki procentowej)
         const yesterdayResult = await pool.query(`
-            SELECT COALESCE(MAX(value) - MIN(value), 0) AS usage 
-            FROM energy_readings 
-            WHERE timestamp >= CURRENT_DATE - INTERVAL '1 day' 
-              AND timestamp < CURRENT_DATE
+            WITH daily_agg AS (
+                SELECT device_name,
+                       (timestamp AT TIME ZONE 'Europe/Warsaw')::date as date_val,
+                       MIN(value) as min_val,
+                       MAX(value) as max_val
+                FROM energy_readings
+                WHERE timestamp >= (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Warsaw')::date - INTERVAL '7 days'
+                GROUP BY device_name, date_val
+            ),
+            diffs AS (
+                SELECT device_name,
+                       date_val,
+                       GREATEST(0, max_val - LAG(max_val, 1, min_val) OVER (PARTITION BY device_name ORDER BY date_val)) as usage
+                FROM daily_agg
+            )
+            SELECT COALESCE(SUM(usage), 0) AS usage 
+            FROM diffs 
+            WHERE date_val = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Warsaw')::date - INTERVAL '1 day'
         `);
         const yesterdayKwh = parseFloat(yesterdayResult.rows[0].usage);
 
-        // 3. NOWOŚĆ: Moc na żywo (Waty) z ostatnich 60 minut do wykresu falowego
         const historyResult = await pool.query(`
             SELECT total_power
             FROM power_readings
@@ -66,12 +111,10 @@ app.get('/api/energy/stats', async (req, res) => {
 
         let history60m = historyResult.rows.map((row: any) => parseFloat(row.total_power));
 
-        // Uzupełniamy zerami, jeśli baza działa krócej niż 60 minut
         while (history60m.length < 60) {
             history60m.unshift(0);
         }
         
-        // Zabezpieczenie na wypadek nadmiarowych danych
         if (history60m.length > 60) {
             history60m = history60m.slice(-60);
         }
@@ -85,6 +128,106 @@ app.get('/api/energy/stats', async (req, res) => {
     } catch (error) {
         console.error("Błąd podczas pobierania statystyk energii:", error);
         res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+// ==========================================
+// HISTORYCZNE DANE DLA WYKRESU SŁUPKOWEGO
+// ==========================================
+app.get('/api/energy/history/:timeframe', async (req, res) => {
+    const { timeframe } = req.params;
+    let query = '';
+    let labels: string[] = [];
+    
+    if (timeframe === 'week') {
+        labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        query = `
+            WITH daily_agg AS (
+                SELECT device_name,
+                       (timestamp AT TIME ZONE 'Europe/Warsaw')::date as date_val,
+                       MIN(value) as min_val,
+                       MAX(value) as max_val
+                FROM energy_readings
+                WHERE timestamp >= date_trunc('week', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Warsaw') - INTERVAL '1 week'
+                GROUP BY device_name, date_val
+            ),
+            diffs AS (
+                SELECT device_name,
+                       date_val,
+                       GREATEST(0, max_val - LAG(max_val, 1, min_val) OVER (PARTITION BY device_name ORDER BY date_val)) as usage
+                FROM daily_agg
+            )
+            SELECT EXTRACT(ISODOW FROM date_val) as label_idx, SUM(usage) as val
+            FROM diffs
+            WHERE date_trunc('week', date_val) = date_trunc('week', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Warsaw')
+            GROUP BY label_idx ORDER BY label_idx`;
+            
+    } else if (timeframe === 'month') {
+        const now = new Date();
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        labels = Array.from({length: daysInMonth}, (_, i) => (i + 1).toString());
+        
+        query = `
+            WITH daily_agg AS (
+                SELECT device_name,
+                       (timestamp AT TIME ZONE 'Europe/Warsaw')::date as date_val,
+                       MIN(value) as min_val,
+                       MAX(value) as max_val
+                FROM energy_readings
+                WHERE timestamp >= date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Warsaw') - INTERVAL '1 week'
+                GROUP BY device_name, date_val
+            ),
+            diffs AS (
+                SELECT device_name,
+                       date_val,
+                       GREATEST(0, max_val - LAG(max_val, 1, min_val) OVER (PARTITION BY device_name ORDER BY date_val)) as usage
+                FROM daily_agg
+            )
+            SELECT EXTRACT(DAY FROM date_val) as label_idx, SUM(usage) as val
+            FROM diffs
+            WHERE date_trunc('month', date_val) = date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Warsaw')
+            GROUP BY label_idx ORDER BY label_idx`;
+            
+    } else if (timeframe === 'year') {
+        labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        query = `
+            WITH monthly_agg AS (
+                SELECT device_name,
+                       date_trunc('month', timestamp AT TIME ZONE 'Europe/Warsaw') as month_val,
+                       MIN(value) as min_val,
+                       MAX(value) as max_val
+                FROM energy_readings
+                WHERE timestamp >= date_trunc('year', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Warsaw') - INTERVAL '1 month'
+                GROUP BY device_name, month_val
+            ),
+            diffs AS (
+                SELECT device_name,
+                       month_val,
+                       GREATEST(0, max_val - LAG(max_val, 1, min_val) OVER (PARTITION BY device_name ORDER BY month_val)) as usage
+                FROM monthly_agg
+            )
+            SELECT EXTRACT(MONTH FROM month_val) as label_idx, SUM(usage) as val
+            FROM diffs
+            WHERE date_trunc('year', month_val) = date_trunc('year', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Warsaw')
+            GROUP BY label_idx ORDER BY label_idx`;
+            
+    } else {
+        return res.status(400).json({ error: 'Invalid timeframe parameter' });
+    }
+
+    try {
+        const result = await pool.query(query);
+        const totalKwh = result.rows.reduce((sum, r) => sum + parseFloat(r.val), 0);
+        
+        const chart = labels.map((label, i) => {
+            const row = result.rows.find(r => Number(r.label_idx) === (i + 1));
+            return { label, value: row ? parseFloat(row.val) : 0 };
+        });
+
+        res.json({ totalKwh, chart });
+    } catch (error) {
+        console.error("Database error in /api/energy/history/:timeframe :", error);
+        res.status(500).json({ error: 'Database error' });
     }
 });
 
@@ -264,6 +407,137 @@ app.put('/api/devices/:friendly_name/rename', (req, res) => {
         console.log(`Changing device name: [${friendly_name}] -> [${new_name}]`);
         res.json({ message: 'Changing device name' });
     });
+});
+
+// ==========================================
+// SCENY (SCENES)
+// ==========================================
+export const triggerSceneLocal = async (id: number) => {
+    try {
+        const result = await pool.query('SELECT actions FROM scenes WHERE id = $1', [id]);
+        if (result.rows.length === 0) return;
+
+        const actions = result.rows[0].actions;
+        
+        actions.forEach((action: any) => {
+            if (action.friendly_name && action.payload) {
+                const topic = `zigbee2mqtt/${action.friendly_name}/set`;
+                mqttClient.publish(topic, JSON.stringify(action.payload), (err) => {
+                    if (err) console.error(`Failed to trigger device ${action.friendly_name} in scene ${id}:`, err);
+                });
+            }
+        });
+    } catch (error) {
+        console.error('Trigger scene error:', error);
+    }
+};
+
+app.get('/api/scenes', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM scenes ORDER BY id ASC');
+        res.json(result.rows);
+    } catch (error) {
+        console.error('API Error (Get Scenes):', error);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.post('/api/scenes', async (req, res) => {
+    const { name, icon, color, actions } = req.body;
+    try {
+        const result = await pool.query(
+            'INSERT INTO scenes (name, icon, color, actions) VALUES ($1, $2, $3, $4) RETURNING *',
+            [name, icon || 'Sparkles', color || 'from-primary/50 to-primary/20', JSON.stringify(actions || [])]
+        );
+        res.json(result.rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.put('/api/scenes/:id', async (req, res) => {
+    const { id } = req.params;
+    const { name, icon, color, actions } = req.body;
+    try {
+        const result = await pool.query(
+            'UPDATE scenes SET name = $1, icon = $2, color = $3, actions = $4 WHERE id = $5 RETURNING *',
+            [name, icon, color, JSON.stringify(actions || []), id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Scene not found' });
+        }
+        res.json(result.rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.delete('/api/scenes/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query('DELETE FROM scenes WHERE id = $1', [id]);
+        res.json({ message: 'Scene deleted' });
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.post('/api/scenes/:id/trigger', async (req, res) => {
+    const { id } = req.params;
+    await triggerSceneLocal(Number(id));
+    res.json({ message: 'Scene triggered successfully' });
+});
+
+// ==========================================
+// AUTOMATYZACJE (AUTOMATIONS CRUD)
+// ==========================================
+app.get('/api/automations', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM automations ORDER BY id ASC');
+        res.json(result.rows);
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.post('/api/automations', async (req, res) => {
+    const { name, is_enabled, trigger_type, trigger_config, condition_config, action_config } = req.body;
+    try {
+        const result = await pool.query(
+            'INSERT INTO automations (name, is_enabled, trigger_type, trigger_config, condition_config, action_config) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+            [name, is_enabled ?? true, trigger_type, JSON.stringify(trigger_config), JSON.stringify(condition_config), JSON.stringify(action_config)]
+        );
+        automationNotifier.onUpdate(); // Sygnał dla silnika pamięci
+        res.json(result.rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.put('/api/automations/:id', async (req, res) => {
+    const { id } = req.params;
+    const { name, is_enabled, trigger_type, trigger_config, condition_config, action_config } = req.body;
+    try {
+        const result = await pool.query(
+            'UPDATE automations SET name = $1, is_enabled = $2, trigger_type = $3, trigger_config = $4, condition_config = $5, action_config = $6 WHERE id = $7 RETURNING *',
+            [name, is_enabled, trigger_type, JSON.stringify(trigger_config), JSON.stringify(condition_config), JSON.stringify(action_config), id]
+        );
+        automationNotifier.onUpdate();
+        res.json(result.rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.delete('/api/automations/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query('DELETE FROM automations WHERE id = $1', [id]);
+        automationNotifier.onUpdate();
+        res.json({ message: 'Automation deleted' });
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
 });
 
 export const startAPI = () => {
