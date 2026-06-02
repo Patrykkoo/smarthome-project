@@ -1,7 +1,152 @@
--e 
 
---- File: apps/web/tailwind.config.ts ---
 
+--- apps/web/components.json ---
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "default",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": {
+    "config": "tailwind.config.ts",
+    "css": "src/index.css",
+    "baseColor": "slate",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  }
+}
+
+
+--- apps/web/eslint.config.js ---
+import js from "@eslint/js";
+import globals from "globals";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
+import tseslint from "typescript-eslint";
+
+export default tseslint.config(
+  { ignores: ["dist"] },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+    },
+    plugins: {
+      "react-hooks": reactHooks,
+      "react-refresh": reactRefresh,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+      "@typescript-eslint/no-unused-vars": "off",
+    },
+  },
+);
+
+
+--- apps/web/package.json ---
+{
+  "name": "vite_react_shadcn_ts",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:dev": "vite build --mode development",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^3.10.0",
+    "@radix-ui/react-accordion": "^1.2.11",
+    "@radix-ui/react-alert-dialog": "^1.1.14",
+    "@radix-ui/react-aspect-ratio": "^1.1.7",
+    "@radix-ui/react-avatar": "^1.1.10",
+    "@radix-ui/react-checkbox": "^1.3.2",
+    "@radix-ui/react-collapsible": "^1.1.11",
+    "@radix-ui/react-context-menu": "^2.2.15",
+    "@radix-ui/react-dialog": "^1.1.14",
+    "@radix-ui/react-dropdown-menu": "^2.1.15",
+    "@radix-ui/react-hover-card": "^1.1.14",
+    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-menubar": "^1.1.15",
+    "@radix-ui/react-navigation-menu": "^1.2.13",
+    "@radix-ui/react-popover": "^1.1.14",
+    "@radix-ui/react-progress": "^1.1.7",
+    "@radix-ui/react-radio-group": "^1.3.7",
+    "@radix-ui/react-scroll-area": "^1.2.9",
+    "@radix-ui/react-select": "^2.2.5",
+    "@radix-ui/react-separator": "^1.1.7",
+    "@radix-ui/react-slider": "^1.3.5",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-switch": "^1.2.5",
+    "@radix-ui/react-tabs": "^1.1.12",
+    "@radix-ui/react-toast": "^1.2.14",
+    "@radix-ui/react-toggle": "^1.1.9",
+    "@radix-ui/react-toggle-group": "^1.1.10",
+    "@radix-ui/react-tooltip": "^1.2.7",
+    "@tanstack/react-query": "^5.83.0",
+    "axios": "^1.15.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "date-fns": "^3.6.0",
+    "embla-carousel-react": "^8.6.0",
+    "input-otp": "^1.4.2",
+    "lucide-react": "^0.462.0",
+    "next-themes": "^0.3.0",
+    "react": "^18.3.1",
+    "react-day-picker": "^8.10.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.61.1",
+    "react-resizable-panels": "^2.1.9",
+    "react-router-dom": "^6.30.1",
+    "recharts": "^2.15.4",
+    "socket.io-client": "^4.8.3",
+    "sonner": "^1.7.4",
+    "tailwind-merge": "^2.6.0",
+    "tailwindcss-animate": "^1.0.7",
+    "vaul": "^0.9.9",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@tailwindcss/typography": "^0.5.16",
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/node": "^22.16.5",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react-swc": "^3.11.0",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^9.32.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^15.15.0",
+    "jsdom": "^20.0.3",
+    "lovable-tagger": "^1.1.13",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.38.0",
+    "vite": "^5.4.19",
+    "vitest": "^3.2.4"
+  }
+}
+
+
+--- apps/web/tailwind.config.ts ---
 import type { Config } from "tailwindcss";
 
 export default {
@@ -98,10 +243,42 @@ export default {
   },
   plugins: [require("tailwindcss-animate")],
 } satisfies Config;
--e 
 
---- File: apps/web/src/hooks/use-mobile.tsx ---
 
+--- apps/web/tsconfig.app.json ---
+{
+  "compilerOptions": {
+    "types": ["vitest/globals", "react", "react-dom", "node"],
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "strict": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noImplicitAny": false,
+    "noFallthroughCasesInSwitch": false,
+
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"]
+}
+
+
+--- apps/web/src/hooks/use-mobile.tsx ---
 import * as React from "react";
 
 const MOBILE_BREAKPOINT = 768;
@@ -121,10 +298,97 @@ export function useIsMobile() {
 
   return !!isMobile;
 }
--e 
 
---- File: apps/web/src/hooks/use-websockets.ts ---
 
+--- apps/web/src/hooks/use-theme.tsx ---
+import { createContext, useContext, useEffect, useState } from "react"
+
+type Theme = "dark" | "light" | "system"
+
+type ThemeProviderProps = {
+  children: React.ReactNode
+  defaultTheme?: Theme
+  storageKey?: string
+}
+
+type ThemeProviderState = {
+  theme: Theme
+  setTheme: (theme: Theme) => void
+}
+
+const initialState: ThemeProviderState = {
+  theme: "system",
+  setTheme: () => null,
+}
+
+const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
+
+export function ThemeProvider({
+  children,
+  defaultTheme = "system",
+  storageKey = "livora_theme",
+  ...props
+}: ThemeProviderProps) {
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
+  )
+
+  useEffect(() => {
+    const root = window.document.documentElement
+
+    root.classList.remove("light", "dark")
+
+    if (theme === "system") {
+      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
+        .matches
+        ? "dark"
+        : "light"
+
+      root.classList.add(systemTheme)
+      return
+    }
+
+    root.classList.add(theme)
+  }, [theme])
+
+  // Nasłuchiwanie na zmiany w systemie w czasie rzeczywistym
+  useEffect(() => {
+    if (theme !== "system") return;
+
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = () => {
+      const root = window.document.documentElement;
+      root.classList.remove("light", "dark");
+      root.classList.add(mediaQuery.matches ? "dark" : "light");
+    };
+
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, [theme]);
+
+  const value = {
+    theme,
+    setTheme: (theme: Theme) => {
+      localStorage.setItem(storageKey, theme)
+      setTheme(theme)
+    },
+  }
+
+  return (
+    <ThemeProviderContext.Provider {...props} value={value}>
+      {children}
+    </ThemeProviderContext.Provider>
+  )
+}
+
+export const useTheme = () => {
+  const context = useContext(ThemeProviderContext)
+  if (context === undefined)
+    throw new Error("useTheme must be used within a ThemeProvider")
+  return context
+}
+
+--- apps/web/src/hooks/use-websockets.ts ---
 import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 
@@ -163,10 +427,9 @@ export const useWebSockets = () => {
   }, []);
 
   return { socket };
-};-e 
+};
 
---- File: apps/web/src/hooks/use-toast.ts ---
-
+--- apps/web/src/hooks/use-toast.ts ---
 import * as React from "react";
 
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast";
@@ -353,10 +616,9 @@ function useToast() {
 }
 
 export { useToast, toast };
--e 
 
---- File: apps/web/src/hooks/use-devices.ts ---
 
+--- apps/web/src/hooks/use-devices.ts ---
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 
@@ -382,269 +644,223 @@ export const useDevices = () => {
         queryKey: ['devices'],
         queryFn: fetchDevices,
     });
-};-e 
+};
 
---- File: apps/web/src/index.css ---
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Livora design system — liquid glass on white. All colors HSL. */
-
-@layer base {
-  :root {
-    /* Brand palette (HSL)
-       #F0F1F3 → 220 13% 95%
-       #C4D3D9 → 198 22% 81%
-       #9DB9C8 → 203 28% 70%
-       #89B1E1 → 212 58% 71%
-       #25272B → 222 8% 16%
-    */
-    --background: 220 13% 95%;
-    --foreground: 222 8% 16%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 222 8% 16%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 8% 16%;
-
-    --primary: 222 8% 16%;
-    --primary-foreground: 220 13% 97%;
-
-    --secondary: 198 22% 81%;
-    --secondary-foreground: 222 8% 16%;
-
-    --muted: 220 13% 92%;
-    --muted-foreground: 222 6% 40%;
-
-    --accent: 212 58% 71%;
-    --accent-foreground: 222 8% 16%;
-
-    --brand-mist: 198 22% 81%;
-    --brand-steel: 203 28% 70%;
-    --brand-sky: 212 58% 71%;
-    --brand-graphite: 222 8% 16%;
-
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 220 14% 88%;
-    --input: 220 14% 88%;
-    --ring: 222 8% 16%;
-
-    --radius: 1.5rem;
-
-    /* Glass tokens */
-    --glass-bg: 0 0% 100%;
-    --glass-border: 0 0% 100%;
-    --glass-shadow: 220 30% 30%;
-
-    /* Sidebar */
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 222 8% 16%;
-    --sidebar-primary: 222 8% 16%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 13% 94%;
-    --sidebar-accent-foreground: 222 8% 16%;
-    --sidebar-border: 220 14% 90%;
-    --sidebar-ring: 212 58% 71%;
-  }
-
-  .dark {
-    --background: 222 12% 8%;
-    --foreground: 220 13% 95%;
-    --card: 222 12% 12%;
-    --card-foreground: 220 13% 95%;
-    --popover: 222 12% 12%;
-    --popover-foreground: 220 13% 95%;
-    --primary: 220 13% 95%;
-    --primary-foreground: 222 12% 8%;
-    --secondary: 222 10% 18%;
-    --secondary-foreground: 220 13% 95%;
-    --muted: 222 10% 16%;
-    --muted-foreground: 220 8% 65%;
-    --accent: 212 58% 71%;
-    --accent-foreground: 222 12% 8%;
-    --destructive: 0 62% 40%;
-    --destructive-foreground: 220 13% 95%;
-    --border: 222 10% 20%;
-    --input: 222 10% 20%;
-    --ring: 212 58% 71%;
-    --glass-bg: 222 12% 16%;
-    --glass-border: 220 13% 95%;
-    --glass-shadow: 0 0% 0%;
-    --sidebar-background: 222 12% 10%;
-    --sidebar-foreground: 220 13% 95%;
-    --sidebar-primary: 212 58% 71%;
-    --sidebar-primary-foreground: 222 12% 8%;
-    --sidebar-accent: 222 10% 16%;
-    --sidebar-accent-foreground: 220 13% 95%;
-    --sidebar-border: 222 10% 20%;
-    --sidebar-ring: 212 58% 71%;
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-
-  html {
-    font-family: "Manrope", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  }
-
-  body {
-    @apply bg-background text-foreground antialiased;
-    font-feature-settings: "ss01", "cv11";
-  }
-
-  h1, h2, h3, h4, h5, h6, .font-display {
-    font-family: "Sora", ui-sans-serif, system-ui, sans-serif;
-    letter-spacing: -0.02em;
-  }
-}
-
-@layer components {
-  /* Liquid glass surface */
-  .glass {
-    background: linear-gradient(
-      180deg,
-      hsl(var(--glass-bg) / 0.72) 0%,
-      hsl(var(--glass-bg) / 0.55) 100%
-    );
-    backdrop-filter: blur(28px) saturate(180%);
-    -webkit-backdrop-filter: blur(28px) saturate(180%);
-    border: 1px solid hsl(var(--glass-border) / 0.6);
-    box-shadow:
-      0 1px 0 0 hsl(var(--glass-border) / 0.8) inset,
-      0 20px 50px -20px hsl(var(--glass-shadow) / 0.18),
-      0 8px 24px -12px hsl(var(--glass-shadow) / 0.12);
-  }
-
-  .glass-strong {
-    background: linear-gradient(
-      180deg,
-      hsl(var(--glass-bg) / 0.88) 0%,
-      hsl(var(--glass-bg) / 0.7) 100%
-    );
-    backdrop-filter: blur(40px) saturate(200%);
-    -webkit-backdrop-filter: blur(40px) saturate(200%);
-    border: 1px solid hsl(var(--glass-border) / 0.7);
-    box-shadow:
-      0 1px 0 0 hsl(var(--glass-border) / 0.9) inset,
-      0 24px 60px -20px hsl(var(--glass-shadow) / 0.22);
-  }
-
-  .glass-hover {
-    @apply transition-all duration-300 ease-out;
-  }
-  .glass-hover:hover {
-    transform: translateY(-2px);
-    box-shadow:
-      0 1px 0 0 hsl(var(--glass-border) / 0.9) inset,
-      0 28px 60px -20px hsl(var(--glass-shadow) / 0.25),
-      0 12px 28px -12px hsl(var(--glass-shadow) / 0.18);
-  }
-
-  /* Ambient background blobs (under glass) */
-  .ambient-bg {
-    position: relative;
-    isolation: isolate;
-    overflow: hidden;
-  }
-  .ambient-bg::before,
-  .ambient-bg::after {
-    content: "";
-    position: absolute;
-    z-index: -1;
-    border-radius: 9999px;
-    pointer-events: none;
-  }
-  
-  /* Lewy górny róg - czysty, jasny błękit, główny punkt świetlny */
-  .ambient-bg::before {
-    width: 800px;
-    height: 800px;
-    top: -200px;
-    left: -150px;
-    filter: blur(140px);
-    background: radial-gradient(circle, hsl(var(--brand-sky) / 0.6), transparent 70%);
-  }
-  
-  /* Prawy dolny róg - głębszy, stalowy błękit, zamykający kompozycję */
-  .ambient-bg::after {
-    width: 900px;
-    height: 900px;
-    bottom: -300px;
-    right: -200px;
-    filter: blur(160px);
-    background: radial-gradient(circle, hsl(var(--brand-steel) / 0.4), transparent 70%);
-  }
-}-e 
-
---- File: apps/web/src/App.tsx ---
-
+--- apps/web/src/App.tsx ---
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/livora/AppLayout";
+import { useWebSockets } from "./hooks/use-websockets";
+import { auth } from "./lib/auth";
+import { ThemeProvider } from "./hooks/use-theme";
+
+import { LockScreen } from "./components/livora/LockScreen";
 import Index from "./pages/Index";
 import Devices from "./pages/Devices";
 import Energy from "./pages/Energy";
 import Scenes from "./pages/Scenes";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
-import { useWebSockets } from "./hooks/use-websockets";
+import Login from "./pages/Login";
 
 const queryClient = new QueryClient();
 
-// Komponent uruchamiający nasze WebSockety i trzymający routing
+// Układ zawierający ekran domowy ORAZ nasłuchiwanie na blokadę ekranu (Away mode)
+const ProtectedLayout = () => {
+  const user = auth.getCurrentUser();
+  if (!user) return <Navigate to="/login" replace />;
+  
+  return (
+    <>
+      <LockScreen />
+      <AppLayout />
+    </>
+  );
+};
+
 const SmartHomeRoot = () => {
   useWebSockets();
 
   return (
     <BrowserRouter>
       <Routes>
-        <Route element={<AppLayout />}>
+        <Route path="/login" element={<Login />} />
+
+        {/* Trasy chronione dla tabletu */}
+        <Route element={<ProtectedLayout />}>
           <Route path="/" element={<Index />} />
           <Route path="/devices" element={<Devices />} />
           <Route path="/energy" element={<Energy />} />
           <Route path="/scenes" element={<Scenes />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
+        
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   );
 };
 
-// Główny komponent aplikacji
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <SmartHomeRoot />
-    </TooltipProvider>
+    <ThemeProvider defaultTheme="system" storageKey="livora_theme">
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <SmartHomeRoot />
+      </TooltipProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
 
-export default App;-e 
+export default App;
 
---- File: apps/web/src/lib/utils.ts ---
+--- apps/web/src/lib/auth.ts ---
+import axios from 'axios';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
+export interface User {
+  id: string;
+  username: string;
+  homeId: string | null;
+  avatar?: string;
+  role: 'owner' | 'member';
+}
+
+const setupAxiosInterceptors = () => {
+  const token = localStorage.getItem('auth_token');
+  if (token) {
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  } else {
+    delete axios.defaults.headers.common['Authorization'];
+  }
+};
+setupAxiosInterceptors();
+
+export const auth = {
+  login: async (username: string, password?: string): Promise<User> => {
+    const res = await axios.post(`${API_URL}/auth/login`, { username, password });
+    localStorage.setItem('auth_token', res.data.token);
+    localStorage.setItem('current_user', JSON.stringify(res.data.user));
+    setupAxiosInterceptors();
+    window.dispatchEvent(new Event('auth_changed'));
+    return res.data.user;
+  },
+
+  register: async (username: string, password?: string): Promise<User> => {
+    const res = await axios.post(`${API_URL}/auth/register`, { username, password });
+    localStorage.setItem('auth_token', res.data.token);
+    localStorage.setItem('current_user', JSON.stringify(res.data.user));
+    setupAxiosInterceptors();
+    window.dispatchEvent(new Event('auth_changed'));
+    return res.data.user;
+  },
+  
+  kioskLogin: async (pin: string): Promise<User> => {
+    const res = await axios.post(`${API_URL}/auth/kiosk-login`, { pin });
+    localStorage.setItem('auth_token', res.data.token);
+    localStorage.setItem('current_user', JSON.stringify(res.data.user));
+    setupAxiosInterceptors();
+    window.dispatchEvent(new Event('auth_changed'));
+    return res.data.user;
+  },
+
+  verifyPin: async (pin: string): Promise<boolean> => {
+    try {
+      await axios.post(`${API_URL}/auth/verify-pin`, { pin });
+      return true;
+    } catch { 
+      return false; 
+    }
+  },
+
+  logout: () => {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('current_user');
+    setupAxiosInterceptors();
+    window.dispatchEvent(new Event('auth_changed'));
+  },
+
+  getCurrentUser: (): User | null => {
+    const userStr = localStorage.getItem('current_user');
+    return userStr ? JSON.parse(userStr) : null;
+  },
+
+  refreshSession: async (): Promise<User | null> => {
+    try {
+        const res = await axios.get(`${API_URL}/auth/me`);
+        localStorage.setItem('current_user', JSON.stringify(res.data));
+        return res.data;
+    } catch {
+        auth.logout();
+        return null;
+    }
+  },
+
+  updateProfile: async (updates: { username: string, avatarUrl: string }) => {
+    const res = await axios.put(`${API_URL}/auth/profile`, updates);
+    localStorage.setItem('current_user', JSON.stringify(res.data));
+    window.dispatchEvent(new Event('auth_changed'));
+    return res.data;
+  },
+
+  changePassword: async (oldPassword: string, newPassword: string): Promise<boolean> => {
+    try {
+      await axios.put(`${API_URL}/auth/password`, { oldPassword, newPassword });
+      return true;
+    } catch { return false; }
+  },
+
+  getUsersInHome: async (homeId: string): Promise<User[]> => {
+    try {
+      const res = await axios.get(`${API_URL}/homes/${homeId}/users`);
+      return res.data;
+    } catch { return []; }
+  },
+
+  inviteUserToHome: async (targetUsername: string, homeId: string): Promise<boolean> => {
+    try {
+      await axios.post(`${API_URL}/homes/${homeId}/invite`, { targetUsername });
+      return true;
+    } catch { return false; }
+  },
+
+  removeUserFromHome: async (userId: string): Promise<boolean> => {
+    try {
+      await axios.delete(`${API_URL}/homes/users/${userId}`);
+      return true;
+    } catch { return false; }
+  },
+
+  changeUserRole: async (userId: string, newRole: 'owner' | 'member'): Promise<boolean> => {
+    try {
+      await axios.put(`${API_URL}/homes/users/${userId}/role`, { role: newRole });
+      
+      const current = auth.getCurrentUser();
+      if (current && current.id === userId) {
+        current.role = newRole;
+        localStorage.setItem('current_user', JSON.stringify(current));
+        window.dispatchEvent(new Event('auth_changed'));
+      }
+      return true;
+    } catch { return false; }
+  }
+};
+
+--- apps/web/src/lib/utils.ts ---
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
--e 
 
---- File: apps/web/src/lib/color.ts ---
 
+--- apps/web/src/lib/color.ts ---
 // Color helpers for Livora device controls.
 
 export function hexToHsl(hex: string): { h: number; s: number; l: number } {
@@ -698,10 +914,9 @@ export function kelvinToHex(kelvin: number): string {
   const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
   const toHex = (v: number) => clamp(v).toString(16).padStart(2, "0");
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
-}-e 
+}
 
---- File: apps/web/src/App.old.tsx ---
-
+--- apps/web/src/App.old.tsx ---
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
@@ -1015,15 +1230,14 @@ function App() {
   );
 }
 
-export default App;-e 
+export default App;
 
---- File: apps/web/src/pages/Scenes.tsx ---
-
-import { useState } from "react";
+--- apps/web/src/pages/Scenes.tsx ---
+import { useState, useMemo } from "react";
 import { 
   Sun, Sparkles, PartyPopper, Moon, Film, Coffee, Plus, Clock, Pencil, Trash2, 
   Lightbulb, Plug, BedDouble, Music, Gamepad2, Zap, Settings2, Trash, Check,
-  Thermometer, Palette, Lock, Unlock
+  Thermometer, Palette, Lock, Unlock, ShieldAlert, Activity, PlaySquare, Minus, Cpu
 } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
 import { Switch } from "@/components/ui/switch";
@@ -1059,7 +1273,14 @@ const AVAILABLE_COLORS = [
   "from-emerald-200/50 to-teal-200/30"
 ];
 
-// TUTAJ WSTAWIAMY LOGIKĘ AUTOMATYZACJI DO STANU
+// Dostępne parametry urządzeń jako wyzwalacze (Trigger Properties)
+const DEVICE_PROPERTIES = [
+  { key: 'contact', label: 'Door/Window Contact', options: [{label: 'Open', value: 'false'}, {label: 'Closed', value: 'true'}] },
+  { key: 'water_leak', label: 'Water Leak Sensor', options: [{label: 'Leak Detected', value: 'true'}, {label: 'Dry', value: 'false'}] },
+  { key: 'tamper', label: 'Tamper Alarm', options: [{label: 'Alert', value: 'true'}, {label: 'Safe', value: 'false'}] },
+  { key: 'state', label: 'Power State', options: [{label: 'Turned ON', value: 'ON'}, {label: 'Turned OFF', value: 'OFF'}] }
+];
+
 const Scenes = () => {
   const queryClient = useQueryClient();
   const { data: devices = [] } = useDevices();
@@ -1068,15 +1289,23 @@ const Scenes = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [sceneToDelete, setSceneToDelete] = useState<number | null>(null);
   
-  // NOWE STANY AUTOMATYZACJI
-  const [isAutoModalOpen, setIsAutoModalOpen] = useState(false);
-  const [autoForm, setAutoForm] = useState<any>({ name: "", is_enabled: true, trigger_type: "time", trigger_config: { time: "08:00" }, action_config: { scene_id: "" } });
-  
   const [formData, setFormData] = useState<{ id?: number, name: string, icon: string, color: string, actions: any[] }>({
     name: "", icon: "Sparkles", color: AVAILABLE_COLORS[0], actions: []
   });
 
-  const { data: scenes = [], isLoading } = useQuery({
+  // STANY AUTOMATYZACJI
+  const [isAutoModalOpen, setIsAutoModalOpen] = useState(false);
+  const [autoToDelete, setAutoToDelete] = useState<number | null>(null);
+  const [autoForm, setAutoForm] = useState<any>({ 
+    name: "", 
+    is_enabled: true, 
+    trigger_type: "time", 
+    trigger_config: { device: "", property: "", value: "", time: "08:00" }, 
+    condition_config: { mode: "any" },
+    action_config: { scene_id: "" } 
+  });
+
+  const { data: scenes = [], isLoading: isLoadingScenes } = useQuery({
     queryKey: ['scenes'],
     queryFn: async () => {
       const res = await axios.get(`${API_URL}/scenes`);
@@ -1084,10 +1313,12 @@ const Scenes = () => {
     }
   });
 
-  // QUERY AUTOMATYZACJI
-  const { data: automations = [] } = useQuery({
+  const { data: automations = [], isLoading: isLoadingAuto } = useQuery({
       queryKey: ['automations'],
-      queryFn: async () => (await axios.get(`${API_URL}/automations`)).data
+      queryFn: async () => {
+        const res = await axios.get(`${API_URL}/automations`);
+        return res.data;
+      }
   });
 
   const handleTrigger = async (id: number) => {
@@ -1126,18 +1357,28 @@ const Scenes = () => {
       toast.success("Scene deleted");
       if (activeSceneId === id) setActiveSceneId(null);
       queryClient.invalidateQueries({ queryKey: ['scenes'] });
+      // Odświeżenie automatyzacji (być może korzystały z tej usuniętej sceny)
+      queryClient.invalidateQueries({ queryKey: ['automations'] });
     } catch (error) {
       toast.error("Failed to delete scene");
     }
   };
 
-  // Filtr odrzucający czujniki, które nie są wykonawcze (nie mają stanu ON/OFF ani jasności)
   const isActuator = (d: any) => {
     const live = d.last_payload || {};
     if (live.contact !== undefined || live.water_leak !== undefined || (live.temperature !== undefined && live.current_heating_setpoint === undefined)) {
         return false;
     }
     return live.state !== undefined || live.brightness !== undefined || live.current_heating_setpoint !== undefined;
+  };
+
+  const hasFeature = (device: any, property: string) => {
+    if (!device) return false;
+    if (device.last_payload && device.last_payload[property] !== undefined) return true;
+    try {
+      const exposesStr = typeof device.exposes === 'string' ? device.exposes : JSON.stringify(device.exposes || {});
+      return exposesStr.includes(`"property":"${property}"`);
+    } catch { return false; }
   };
 
   const addAction = (friendlyName: string) => {
@@ -1180,24 +1421,76 @@ const Scenes = () => {
     setIsModalOpen(true);
   };
 
-  // LOGIKA AUTOMATYZACJI - DODANE
+  // LOGIKA AUTOMATYZACJI
   const toggleAutomation = async (id: number, enabled: boolean) => {
       const auto = automations.find((a:any) => a.id === id);
+      if (!auto) return;
       try {
           await axios.put(`${API_URL}/automations/${id}`, { ...auto, is_enabled: enabled });
           queryClient.invalidateQueries({ queryKey: ['automations'] });
-      } catch (e) { toast.error("Error toggling"); }
+      } catch (e) { toast.error("Failed to toggle automation"); }
   }
 
   const saveAutomation = async () => {
-      if (!autoForm.name.trim()) return toast.error("Name required");
+      if (!autoForm.name.trim()) return toast.error("Rule name cannot be empty");
+      if (autoForm.trigger_type === 'device_state' && (!autoForm.trigger_config.device || !autoForm.trigger_config.property || !autoForm.trigger_config.value)) {
+          return toast.error("Please complete the trigger details");
+      }
+      if (!autoForm.action_config.scene_id) return toast.error("Select an action to execute");
+
       try {
-          if (autoForm.id) await axios.put(`${API_URL}/automations/${autoForm.id}`, autoForm);
-          else await axios.post(`${API_URL}/automations`, autoForm);
+          if (autoForm.id) {
+            await axios.put(`${API_URL}/automations/${autoForm.id}`, autoForm);
+            toast.success("Automation rule updated");
+          } else {
+            await axios.post(`${API_URL}/automations`, autoForm);
+            toast.success("Automation rule created");
+          }
           queryClient.invalidateQueries({ queryKey: ['automations'] });
           setIsAutoModalOpen(false);
-      } catch (e) { toast.error("Error saving automation"); }
+      } catch (e) { toast.error("Failed to save automation rule"); }
   }
+
+  const openAutoEditor = (auto?: any) => {
+    if (auto) {
+        setAutoForm({ 
+          id: auto.id, 
+          name: auto.name, 
+          is_enabled: auto.is_enabled, 
+          trigger_type: auto.trigger_type, 
+          trigger_config: auto.trigger_config || {}, 
+          condition_config: auto.condition_config || {mode: "any"}, 
+          action_config: auto.action_config || {} 
+        });
+    } else {
+        setAutoForm({ 
+          name: "", 
+          is_enabled: true, 
+          trigger_type: "time", 
+          trigger_config: { device: "", property: "", value: "", time: "08:00" }, 
+          condition_config: { mode: "any" }, 
+          action_config: { scene_id: "" } 
+        });
+    }
+    setIsAutoModalOpen(true);
+  };
+
+  const deleteAutomation = async (id: number) => {
+    try {
+      await axios.delete(`${API_URL}/automations/${id}`);
+      toast.success("Automation rule deleted");
+      queryClient.invalidateQueries({ queryKey: ['automations'] });
+    } catch (error) {
+      toast.error("Failed to delete automation rule");
+    }
+  };
+
+  // Wyliczanie opcji dla wybranego czujnika
+  const activeTriggerDeviceProps = useMemo(() => {
+    if (!autoForm.trigger_config?.device) return [];
+    const d = devices.find((x:any) => x.friendly_name === autoForm.trigger_config.device);
+    return DEVICE_PROPERTIES.filter(prop => hasFeature(d, prop.key));
+  }, [autoForm.trigger_config?.device, devices]);
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto">
@@ -1206,7 +1499,7 @@ const Scenes = () => {
           <h1 className="font-display text-3xl font-semibold">Scenes & Automations</h1>
           <p className="text-sm text-muted-foreground mt-1">One tap to set the mood. Rules to do it for you.</p>
         </div>
-        <Button onClick={() => openEditor()} className="rounded-full px-5 py-2.5 shadow-md hover:shadow-lg transition-all h-11">
+        <Button onClick={() => openEditor()} className="rounded-full px-5 py-2.5 shadow-md transition-all h-11 focus-visible:ring-0">
           <Plus className="h-4 w-4 mr-2" /> Create scene
         </Button>
       </div>
@@ -1214,14 +1507,14 @@ const Scenes = () => {
       <section>
         <h2 className="font-display text-xl font-semibold mb-4">Scenes</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {isLoading ? (
+          {isLoadingScenes ? (
             <p className="text-muted-foreground py-10 col-span-full">Loading scenes...</p>
           ) : scenes.length === 0 ? (
-            <div className="col-span-full py-12 flex flex-col items-center justify-center border border-dashed border-border/60 rounded-[28px] bg-background/30">
+            <div className="col-span-full py-12 flex flex-col items-center justify-center border border-white/10 rounded-[28px] bg-muted/10">
               <Sparkles className="h-10 w-10 text-muted-foreground mb-3 opacity-50" />
               <p className="font-medium text-foreground">No scenes yet</p>
               <p className="text-sm text-muted-foreground mt-1 mb-4">Create your first scene to control multiple devices at once.</p>
-              <Button variant="outline" onClick={() => openEditor()} className="rounded-xl h-11">Create Scene</Button>
+              <Button onClick={() => openEditor()} className="rounded-xl h-11 shadow-md focus-visible:ring-0">Create Scene</Button>
             </div>
           ) : (
             scenes.map((s: any) => {
@@ -1233,7 +1526,7 @@ const Scenes = () => {
                   key={s.id} 
                   variant={isActive ? "strong" : "default"}
                   onClick={() => handleTrigger(s.id)}
-                  className="p-6 cursor-pointer relative overflow-hidden group min-h-[160px]"
+                  className="p-6 cursor-pointer relative overflow-hidden min-h-[160px]"
                 >
                   <div className={`absolute inset-0 bg-gradient-to-br ${s.color} opacity-${isActive ? "100" : "60"} pointer-events-none transition-opacity duration-500`} />
                   
@@ -1251,7 +1544,7 @@ const Scenes = () => {
                         )}
                         <button 
                           onClick={(e) => { e.stopPropagation(); openEditor(s); }} 
-                          className="h-10 w-10 rounded-full bg-background/50 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background/80 transition-all backdrop-blur-sm opacity-60 group-hover:opacity-100 active:scale-95"
+                          className="h-10 w-10 rounded-full bg-background/50 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background/80 transition-all backdrop-blur-sm opacity-80 active:scale-95 focus-visible:ring-0"
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
@@ -1268,32 +1561,83 @@ const Scenes = () => {
         </div>
       </section>
 
-      {/* AUTOMATIONS SECTION */}
+      {/* SEKCJA AUTOMATYZACJI */}
       <section className="pt-4">
         <div className="flex items-center justify-between mb-4">
-            <h2 className="font-display text-xl font-semibold">Automations</h2>
-            <Button variant="ghost" onClick={() => { setAutoForm({ name: "", is_enabled: true, trigger_type: "time", trigger_config: { time: "08:00" }, action_config: { scene_id: "" } }); setIsAutoModalOpen(true); }} className="rounded-full">
-                <Plus className="h-4 w-4 mr-2" /> Add rule
-            </Button>
+          <h2 className="font-display text-xl font-semibold">Automations</h2>
+          <Button onClick={() => openAutoEditor()} className="rounded-full px-5 py-2.5 shadow-md transition-all h-11 focus-visible:ring-0">
+            <Plus className="h-4 w-4 mr-2" /> Create Automation
+          </Button>
         </div>
-        <GlassCard className="p-2">
-          <ul className="divide-y divide-border/60">
-            {automations.map((a: any) => (
-              <li key={a.id} className="flex items-center gap-4 p-4 group">
-                <div className="h-10 w-10 shrink-0 rounded-2xl bg-muted flex items-center justify-center cursor-pointer" onClick={() => { setAutoForm(a); setIsAutoModalOpen(true); }}>
-                  <Clock className="h-4 w-4" />
-                </div>
-                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { setAutoForm(a); setIsAutoModalOpen(true); }}>
-                  <p className="font-medium text-foreground">{a.name}</p>
-                  <p className="text-sm text-muted-foreground truncate">{a.trigger_type}</p>
-                </div>
-                <Switch checked={a.is_enabled} onCheckedChange={(v) => toggleAutomation(a.id, v)} />
-              </li>
-            ))}
-          </ul>
-        </GlassCard>
+
+        {isLoadingAuto ? (
+          <p className="text-muted-foreground py-10 col-span-full">Loading automations...</p>
+        ) : automations.length === 0 ? (
+          <div className="col-span-full py-12 flex flex-col items-center justify-center border border-white/10 rounded-[28px] bg-muted/10">
+            <Settings2 className="h-10 w-10 text-muted-foreground mb-3 opacity-50" />
+            <p className="font-medium text-foreground">No automations yet</p>
+            <p className="text-sm text-muted-foreground mt-1 mb-4">Create your first rule to automate devices.</p>
+            <Button onClick={() => openAutoEditor()} className="rounded-xl h-11 shadow-md focus-visible:ring-0">Create Automation</Button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {automations.map((a: any) => {
+              let desc = "Triggered by event";
+              let IconObj = Activity;
+              
+              if (a.trigger_type === 'time') { 
+                  desc = `At ${a.trigger_config?.time || "unknown time"}`; 
+                  IconObj = Clock; 
+              }
+              else if (a.trigger_type === 'device_state' && a.trigger_config?.device) { 
+                  desc = `When ${a.trigger_config.device} updates`; 
+                  IconObj = ShieldAlert; 
+              }
+              
+              if (a.condition_config?.mode && a.condition_config.mode !== "any") {
+                  desc += ` (Only if ${a.condition_config.mode})`;
+              }
+
+              return (
+                <GlassCard 
+                  key={a.id} 
+                  hover
+                  onClick={() => openAutoEditor(a)}
+                  className={cn(
+                    "px-5 py-3.5 cursor-pointer flex items-center gap-4 transition-all duration-300",
+                    !a.is_enabled && "opacity-60 grayscale-[30%]"
+                  )}
+                >
+                  <div className="h-10 w-10 rounded-xl bg-muted/50 flex items-center justify-center border border-white/5 backdrop-blur-md shrink-0">
+                    <IconObj className="h-4.5 w-4.5 text-foreground" />
+                  </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-display text-base font-semibold truncate leading-tight">{a.name}</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{desc}</p>
+                  </div>
+                  
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <Switch checked={a.is_enabled} onCheckedChange={(v) => toggleAutomation(a.id, v)} />
+                    </div>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); openAutoEditor(a); }} 
+                      className="h-9 w-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background/60 transition-all active:scale-95 focus-visible:ring-0"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  </div>
+                </GlassCard>
+              );
+            })}
+          </div>
+        )}
       </section>
 
+      {/* ===================================== */}
+      {/* MODAL KREATORA SCEN */}
+      {/* ===================================== */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="glass border-white/20 rounded-[28px] max-w-2xl p-0 overflow-hidden flex flex-col max-h-[85vh]">
           <DialogHeader className="p-6 pb-2 shrink-0">
@@ -1351,7 +1695,7 @@ const Scenes = () => {
 
             <div className="space-y-4 pt-4 border-t border-border/40">
               <div className="flex items-center justify-between">
-                <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Device Actions</label>
+                <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1 block mb-0">Device Actions</label>
                 
                 <Select onValueChange={addAction}>
                   <SelectTrigger className="w-[200px] h-11 text-sm rounded-xl bg-background/50 border-white/10">
@@ -1368,7 +1712,7 @@ const Scenes = () => {
               </div>
 
               {formData.actions.length === 0 ? (
-                <div className="text-center py-10 bg-background/30 rounded-3xl border border-dashed border-border/40">
+                <div className="text-center py-10 bg-background/30 rounded-3xl border border-white/10">
                   <Settings2 className="h-10 w-10 text-muted-foreground/50 mx-auto mb-3" />
                   <p className="text-base font-medium text-foreground/80">No devices configured</p>
                   <p className="text-sm text-muted-foreground mt-1">Select devices from the list above to automate them.</p>
@@ -1378,14 +1722,17 @@ const Scenes = () => {
                   {formData.actions.map((action, index) => {
                     const devMeta = devices.find((d: any) => d.id === action.device_id);
                     const p = devMeta?.last_payload || {};
+                    
                     const hasBrightness = p.brightness !== undefined;
                     const hasColorTemp = p.color_temp !== undefined || p.color_mode === 'color_temp';
                     const hasColor = p.color !== undefined || p.color_mode === 'hs' || p.color_mode === 'xy';
                     const hasChildLock = p.child_lock !== undefined;
+                    
                     const isBulb = hasBrightness || hasColorTemp || hasColor;
 
                     return (
                       <div key={index} className="bg-card border border-border/60 shadow-sm rounded-3xl overflow-hidden flex flex-col transition-all">
+                        {/* HEADER URZĄDZENIA */}
                         <div className="bg-muted/20 px-4 py-3 flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className="h-10 w-10 rounded-xl bg-background border border-border/50 flex items-center justify-center text-foreground shadow-sm shrink-0">
@@ -1393,19 +1740,104 @@ const Scenes = () => {
                             </div>
                             <span className="font-semibold text-base truncate max-w-[140px] sm:max-w-[200px]">{action.friendly_name}</span>
                           </div>
+                          
                           <div className="flex items-center gap-1">
-                            <span className="text-sm font-medium text-muted-foreground mr-2 hidden sm:block">{action.payload.state === "ON" ? "Turn On" : "Turn Off"}</span>
-                            <Switch checked={action.payload.state === "ON"} onCheckedChange={(v) => updateActionPayload(index, "state", v ? "ON" : "OFF")} />
+                            <span className="text-sm font-medium text-muted-foreground mr-2 hidden sm:block">
+                              {action.payload.state === "ON" ? "Turn On" : "Turn Off"}
+                            </span>
+                            <Switch 
+                              checked={action.payload.state === "ON"} 
+                              onCheckedChange={(v) => updateActionPayload(index, "state", v ? "ON" : "OFF")}
+                            />
                             <div className="w-px h-5 bg-border mx-2"></div>
-                            <button onClick={() => removeAction(index)} className="h-10 w-10 flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 className="h-5 w-5" /></button>
+                            {/* Zwiększony przycisk kosza */}
+                            <button 
+                              onClick={() => removeAction(index)} 
+                              className="h-10 w-10 flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors active:scale-95 focus-visible:ring-0"
+                            >
+                              <Trash2 className="h-5 w-5" />
+                            </button>
                           </div>
                         </div>
-                        {action.payload.state === "ON" && (isBulb || hasChildLock) && (
+
+                        {/* OPCJE (Tylko jeśli ON i są dostępne ficzery) */}
+                        {action.payload.state === "ON" && (hasBrightness || hasColorTemp || hasColor || hasChildLock) && (
                           <div className="p-5 bg-background/40 border-t border-border/40 flex flex-col gap-6">
-                            {hasBrightness && (<div><div className="flex items-center justify-between mb-3"><span className="text-sm text-muted-foreground font-medium flex items-center gap-1.5"><Sun className="h-4 w-4" /> Brightness</span><span className="text-sm font-bold">{Math.round(((action.payload.brightness || 254) / 254) * 100)}%</span></div><div className="px-1 py-2"><Slider value={[action.payload.brightness || 254]} max={254} step={1} onValueChange={(v) => updateActionPayload(index, "brightness", v[0])} /></div></div>)}
-                            {hasColorTemp && (<div><div className="flex items-center justify-between mb-3"><span className="text-sm text-muted-foreground font-medium flex items-center gap-1.5"><Thermometer className="h-4 w-4" /> Temperature</span><span className="text-sm font-bold">{Math.round(1000000 / (action.payload.color_temp || 250))}K</span></div><div className="px-1 py-2"><Slider value={[1000000 / (action.payload.color_temp || 250)]} min={2000} max={6000} step={100} onValueChange={(v) => { updateActionPayload(index, "color_temp", Math.round(1000000/v[0])); updateActionPayload(index, "color_mode", "color_temp"); }} /></div><div className="mt-3 h-2 rounded-full mx-1" style={{ background: "linear-gradient(to right, #FF8B3D 0%, #FFB870 25%, #FFE4B5 50%, #FFFFFF 75%, #CFE2FF 100%)" }} /></div>)}
-                            {hasColor && (<div className="flex flex-col items-center justify-center bg-muted/20 rounded-2xl p-4 border border-border/50"><span className="text-sm text-muted-foreground font-medium flex items-center gap-1.5 mb-4 w-full"><Palette className="h-4 w-4" /> Color</span><ColorWheel hue={action.payload.color?.h || 0} saturation={action.payload.color?.s || 100} className="max-w-[180px] w-full" onChange={(h, s) => { updateActionPayload(index, "color", { h, s }); updateActionPayload(index, "color_mode", "hs"); }} /><p className="text-[11px] uppercase font-bold tracking-wider text-muted-foreground mt-4">{action.payload.color ? hslToHex(action.payload.color.h, action.payload.color.s, 50) : "DEFAULT"}</p></div>)}
-                            {hasChildLock && (<div className="flex items-center justify-between"><div className="flex items-center gap-3"><div className={cn("h-8 w-8 rounded-lg flex items-center justify-center", action.payload.child_lock === "LOCK" ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted text-muted-foreground")}>{action.payload.child_lock === "LOCK" ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}</div><span className="text-sm font-medium">Child Lock</span></div><Switch checked={action.payload.child_lock === "LOCK"} onCheckedChange={(v) => updateActionPayload(index, "child_lock", v ? "LOCK" : "UNLOCK")} /></div>)}
+                            
+                            {hasBrightness && (
+                              <div>
+                                <div className="flex items-center justify-between mb-3">
+                                  <span className="text-sm text-muted-foreground font-medium flex items-center gap-1.5"><Sun className="h-4 w-4" /> Brightness</span>
+                                  <span className="text-sm font-bold">{Math.round(((action.payload.brightness || 254) / 254) * 100)}%</span>
+                                </div>
+                                <div className="px-1 py-2">
+                                  <Slider 
+                                    value={[action.payload.brightness || 254]} 
+                                    max={254} step={1}
+                                    onValueChange={(v) => updateActionPayload(index, "brightness", v[0])}
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {hasColorTemp && (
+                              <div>
+                                <div className="flex items-center justify-between mb-3">
+                                  <span className="text-sm text-muted-foreground font-medium flex items-center gap-1.5"><Thermometer className="h-4 w-4" /> Temperature</span>
+                                  <span className="text-sm font-bold">{Math.round(1000000 / (action.payload.color_temp || 250))}K</span>
+                                </div>
+                                <div className="px-1 py-2">
+                                  <Slider 
+                                    value={[1000000 / (action.payload.color_temp || 250)]} 
+                                    min={2000} max={6000} step={100}
+                                    onValueChange={(v) => {
+                                      updateActionPayload(index, "color_temp", Math.round(1000000/v[0]));
+                                      updateActionPayload(index, "color_mode", "color_temp");
+                                    }}
+                                  />
+                                </div>
+                                <div
+                                  className="mt-3 h-2 rounded-full mx-1"
+                                  style={{ background: "linear-gradient(to right, #FF8B3D 0%, #FFB870 25%, #FFE4B5 50%, #FFFFFF 75%, #CFE2FF 100%)" }}
+                                />
+                              </div>
+                            )}
+
+                            {hasColor && (
+                              <div className="flex flex-col items-center justify-center bg-muted/20 rounded-2xl p-4 border border-border/50">
+                                <span className="text-sm text-muted-foreground font-medium flex items-center gap-1.5 mb-4 w-full"><Palette className="h-4 w-4" /> Color</span>
+                                {/* Powiększone koło kolorów do 180px */}
+                                <ColorWheel 
+                                  hue={action.payload.color?.h || 0} 
+                                  saturation={action.payload.color?.s || 100}
+                                  className="max-w-[180px] w-full"
+                                  onChange={(h, s) => {
+                                    updateActionPayload(index, "color", { h, s });
+                                    updateActionPayload(index, "color_mode", "hs");
+                                  }}
+                                />
+                                <p className="text-[11px] uppercase font-bold tracking-wider text-muted-foreground mt-4">
+                                  {action.payload.color ? hslToHex(action.payload.color.h, action.payload.color.s, 50) : "DEFAULT"}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Child Lock */}
+                            {hasChildLock && (
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className={cn("h-8 w-8 rounded-lg flex items-center justify-center", action.payload.child_lock === "LOCK" ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted text-muted-foreground")}>
+                                    {action.payload.child_lock === "LOCK" ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                                  </div>
+                                  <span className="text-sm font-medium">Child Lock</span>
+                                </div>
+                                <Switch 
+                                  checked={action.payload.child_lock === "LOCK"} 
+                                  onCheckedChange={(v) => updateActionPayload(index, "child_lock", v ? "LOCK" : "UNLOCK")}
+                                />
+                              </div>
+                            )}
+
                           </div>
                         )}
                       </div>
@@ -1417,43 +1849,248 @@ const Scenes = () => {
           </div>
           
           <DialogFooter className="p-6 pt-4 border-t border-border/40 bg-background/20 shrink-0 sm:justify-between w-full flex items-center">
-            {formData.id ? <Button type="button" variant="ghost" onClick={() => { setIsModalOpen(false); setSceneToDelete(formData.id!); }} className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl px-4 h-12"><Trash2 className="h-5 w-5 mr-2" /> Delete</Button> : <div />}
+            {formData.id ? (
+              <Button 
+                type="button" 
+                variant="ghost" 
+                onClick={() => { setIsModalOpen(false); setSceneToDelete(formData.id!); }} 
+                className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl px-4 h-12 focus-visible:ring-0"
+              >
+                <Trash2 className="h-5 w-5 mr-2" /> Delete
+              </Button>
+            ) : <div />}
+            
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={() => setIsModalOpen(false)} className="rounded-xl bg-background hover:bg-muted h-12 px-6">Cancel</Button>
-              <Button onClick={handleSaveScene} className="rounded-xl shadow-md h-12 px-8">Save Scene</Button>
+              <Button variant="outline" onClick={() => setIsModalOpen(false)} className="rounded-xl border-none bg-muted hover:bg-muted/80 h-12 px-6 focus-visible:ring-0">Cancel</Button>
+              <Button onClick={handleSaveScene} className="rounded-xl shadow-md h-12 px-8 focus-visible:ring-0">Save Scene</Button>
             </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* AUTOMATION MODAL */}
+      {/* ===================================== */}
+      {/* MODAL KREATORA AUTOMATYZACJI */}
+      {/* ===================================== */}
       <Dialog open={isAutoModalOpen} onOpenChange={setIsAutoModalOpen}>
-        <DialogContent className="glass rounded-[28px] max-w-xl">
-            <DialogHeader><DialogTitle>Automation Rule</DialogTitle></DialogHeader>
-            <div className="space-y-4 py-4">
-                <Input placeholder="Rule name" value={autoForm.name} onChange={e => setAutoForm({...autoForm, name: e.target.value})} />
-                <Select value={autoForm.trigger_type} onValueChange={(v) => setAutoForm({...autoForm, trigger_type: v})}>
-                    <SelectTrigger><SelectValue placeholder="Trigger type" /></SelectTrigger>
-                    <SelectContent><SelectItem value="time">Time</SelectItem><SelectItem value="device_state">Device State</SelectItem></SelectContent>
-                </Select>
-                {autoForm.trigger_type === 'time' && <Input type="time" value={autoForm.trigger_config.time} onChange={e => setAutoForm({...autoForm, trigger_config: {time: e.target.value}})} />}
-                <Select value={String(autoForm.action_config.scene_id)} onValueChange={(v) => setAutoForm({...autoForm, action_config: {scene_id: Number(v)}})}>
-                    <SelectTrigger><SelectValue placeholder="Select Scene" /></SelectTrigger>
-                    <SelectContent>{scenes.map((s:any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
-                </Select>
+        <DialogContent className="glass border-white/20 rounded-[28px] max-w-xl p-0 overflow-hidden flex flex-col max-h-[85vh]">
+          <DialogHeader className="p-6 pb-2 shrink-0 border-b border-white/10 bg-background/20">
+            <DialogTitle className="font-display text-2xl">{autoForm.id ? "Edit Automation" : "New Automation"}</DialogTitle>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-y-auto p-6 pt-4 space-y-8 no-scrollbar">
+            
+            <div>
+              <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2 ml-1 block">Rule Name</label>
+              <Input 
+                value={autoForm.name} 
+                onChange={e => setAutoForm((prev:any) => ({ ...prev, name: e.target.value }))} 
+                placeholder="e.g. Sunset Lights" 
+                className="bg-background/50 border-white/10 rounded-xl text-base h-12 px-4" 
+              />
             </div>
-            <DialogFooter><Button onClick={saveAutomation}>Save Rule</Button></DialogFooter>
+
+            {/* BLOCK 1: TRIGGER */}
+            <div className="space-y-4">
+              <label className="text-xs uppercase tracking-wider text-foreground font-semibold mb-2 ml-1 block">Trigger Event</label>
+
+              <div 
+                role="tablist" 
+                aria-label="Trigger type" 
+                className="relative grid grid-cols-2 items-center glass rounded-full p-1 h-11 bg-background/20 border border-white/10 select-none"
+              >
+                <div 
+                  aria-hidden 
+                  className="absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-full bg-primary shadow-lg transition-transform duration-300 ease-out" 
+                  style={{ transform: `translateX(${autoForm.trigger_type === "time" ? "4px" : "calc(100% + 4px)"})` }} 
+                />
+                <button 
+                  type="button" role="tab" 
+                  aria-selected={autoForm.trigger_type === "time"} 
+                  onClick={() => setAutoForm((p:any) => ({ ...p, trigger_type: "time", trigger_config: { time: "08:00" } }))} 
+                  className={cn("relative z-10 inline-flex items-center justify-center gap-1.5 h-9 rounded-full text-sm font-medium transition-colors outline-none", autoForm.trigger_type === "time" ? "text-primary-foreground" : "text-muted-foreground")}
+                >
+                  <Clock className="h-4 w-4" /> Time
+                </button>
+                <button 
+                  type="button" role="tab" 
+                  aria-selected={autoForm.trigger_type === "device_state"} 
+                  onClick={() => setAutoForm((p:any) => ({ ...p, trigger_type: "device_state", trigger_config: { device: "", property: "", value: "" } }))} 
+                  className={cn("relative z-10 inline-flex items-center justify-center gap-1.5 h-9 rounded-full text-sm font-medium transition-colors outline-none", autoForm.trigger_type === "device_state" ? "text-primary-foreground" : "text-muted-foreground")}
+                >
+                  <Cpu className="h-4 w-4" /> Device
+                </button>
+              </div>
+
+              <div className="pt-2">
+                {autoForm.trigger_type === "time" && (() => {
+                  const [hStr, mStr] = (autoForm.trigger_config.time || "08:00").split(":");
+                  const h = parseInt(hStr,10)||0, m = parseInt(mStr,10)||0;
+                  const setTime = (nh:number, nm:number) => {
+                    const hh = ((nh%24)+24)%24, mm = ((nm%60)+60)%60;
+                    const t = `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`;
+                    setAutoForm((p:any) => ({ ...p, trigger_config: { ...p.trigger_config, time: t } }));
+                  };
+                  const StepBtn = ({ onClick, children }:any) => (
+                    <button type="button" onClick={onClick} className="h-10 w-10 shrink-0 rounded-full bg-background/80 border border-border/50 flex items-center justify-center text-foreground hover:bg-primary hover:text-primary-foreground hover:border-transparent transition">
+                      {children}
+                    </button>
+                  );
+                  const Unit = ({ value, onDec, onInc, label }:any) => (
+                    <div className="flex items-center gap-3 flex-1 min-w-0 justify-center">
+                      <StepBtn onClick={onDec}><Minus className="h-4 w-4" /></StepBtn>
+                      <div className="text-center leading-none">
+                        <p className="font-display text-3xl font-semibold tabular-nums">{String(value).padStart(2,"0")}</p>
+                        <p className="mt-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+                      </div>
+                      <StepBtn onClick={onInc}><Plus className="h-4 w-4" /></StepBtn>
+                    </div>
+                  );
+                  return (
+                    <div className="rounded-2xl bg-background/50 border border-border/40 px-4 py-4 flex items-center justify-between gap-2">
+                      <Unit label="Hour"   value={h} onDec={() => setTime(h-1, m)} onInc={() => setTime(h+1, m)} />
+                      <span className="font-display text-2xl font-semibold text-muted-foreground">:</span>
+                      <Unit label="Minute" value={m} onDec={() => setTime(h, m-5)} onInc={() => setTime(h, m+5)} />
+                    </div>
+                  );
+                })()}
+
+                {autoForm.trigger_type === "device_state" && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 ml-1 block">Which Device?</label>
+                      <Select value={autoForm.trigger_config.device} onValueChange={(v) => setAutoForm((prev:any) => ({ ...prev, trigger_config: {...prev.trigger_config, device: v, property: "", value: ""} }))}>
+                        <SelectTrigger className="w-full h-12 text-base rounded-xl bg-background/50 border-white/10 px-4"><SelectValue placeholder="Select a sensor..." /></SelectTrigger>
+                        <SelectContent className="rounded-xl border-white/10 glass">
+                          {devices.map((d: any) => (<SelectItem key={d.id} value={d.friendly_name} className="py-3 cursor-pointer">{d.friendly_name}</SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {autoForm.trigger_config.device && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 ml-1 block">Property</label>
+                          <Select value={autoForm.trigger_config.property} onValueChange={(v) => setAutoForm((prev:any) => ({ ...prev, trigger_config: {...prev.trigger_config, property: v, value: ""} }))}>
+                            <SelectTrigger className="w-full h-12 text-base rounded-xl bg-background/50 border-white/10 px-4"><SelectValue placeholder="Select..." /></SelectTrigger>
+                            <SelectContent className="rounded-xl border-white/10 glass">
+                              {activeTriggerDeviceProps.map(prop => (<SelectItem key={prop.key} value={prop.key} className="py-3 cursor-pointer">{prop.label}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 ml-1 block">Becomes</label>
+                          <Select value={autoForm.trigger_config.value} onValueChange={(v) => setAutoForm((prev:any) => ({ ...prev, trigger_config: {...prev.trigger_config, value: v} }))}>
+                            <SelectTrigger className="w-full h-12 text-base rounded-xl bg-background/50 border-white/10 px-4"><SelectValue placeholder="Value..." /></SelectTrigger>
+                            <SelectContent className="rounded-xl border-white/10 glass">
+                              {activeTriggerDeviceProps.find(p => p.key === autoForm.trigger_config.property)?.options.map(o => (
+                                <SelectItem key={o.value} value={o.value} className="py-3 cursor-pointer">{o.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* BLOCK 2: CONDITION */}
+            <div className="pt-6 border-t border-border/40 space-y-3">
+              <label className="text-xs uppercase tracking-wider text-foreground font-semibold mb-2 ml-1 block">Condition (Optional)</label>
+              <Select value={autoForm.condition_config?.mode || "any"} onValueChange={(v) => setAutoForm((prev:any) => ({ ...prev, condition_config: {mode: v} }))}>
+                <SelectTrigger className="w-full h-12 text-base rounded-xl bg-background/50 border-white/10 px-4">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-white/10 glass">
+                  <SelectItem value="any" className="py-3 cursor-pointer">Always allow</SelectItem>
+                  <SelectItem value="home" className="py-3 cursor-pointer">Only when I'm Home</SelectItem>
+                  <SelectItem value="away" className="py-3 cursor-pointer">Only when I'm Away</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* BLOCK 3: ACTION */}
+            <div className="pt-6 border-t border-border/40 space-y-3">
+              <label className="text-xs uppercase tracking-wider text-primary font-bold mb-2 ml-1 block">Scene To Run</label>
+              <Select value={autoForm.action_config?.scene_id ? String(autoForm.action_config.scene_id) : ""} onValueChange={(v) => setAutoForm((prev:any) => ({ ...prev, action_config: {scene_id: Number(v)} }))}>
+                <SelectTrigger className="w-full h-12 text-base rounded-xl bg-background/50 border-white/10 px-4 shadow-sm border-primary/30">
+                  <SelectValue placeholder="Select a Scene..." />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-white/10 glass">
+                  {scenes.map((s:any) => {
+                    const IconComp = AVAILABLE_ICONS[s.icon] || Sparkles;
+                    return (
+                      <SelectItem key={s.id} value={String(s.id)} className="py-3 cursor-pointer">
+                        <div className="flex items-center gap-3">
+                           <div className="h-6 w-6 rounded-md bg-muted flex items-center justify-center shrink-0">
+                               <IconComp className="h-3.5 w-3.5" />
+                           </div>
+                           <span className="font-semibold">{s.name}</span>
+                        </div>
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+
+          </div>
+          
+          <DialogFooter className="p-6 pt-4 border-t border-border/40 bg-background/20 shrink-0 sm:justify-between w-full flex items-center">
+            {autoForm.id ? (
+              <Button type="button" variant="ghost" onClick={() => { setIsAutoModalOpen(false); setAutoToDelete(autoForm.id!); }} className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl px-4 h-12 focus-visible:ring-0">
+                <Trash2 className="h-5 w-5 mr-2" /> Delete
+              </Button>
+            ) : <div />}
+            
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={() => setIsAutoModalOpen(false)} className="rounded-xl border-none bg-muted hover:bg-muted/80 h-12 px-6 focus-visible:ring-0">Cancel</Button>
+              <Button onClick={saveAutomation} className="rounded-xl shadow-md h-12 px-8 focus-visible:ring-0">Save Rule</Button>
+            </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!sceneToDelete} onOpenChange={() => setSceneToDelete(null)}>
+        <AlertDialogContent className="glass border-white/20 rounded-[28px] max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Scene?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this scene? You will lose its device configuration.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-xl border-none bg-muted hover:bg-muted/80 h-11 focus-visible:ring-0">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (sceneToDelete) handleDelete(sceneToDelete); setSceneToDelete(null); }} className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 h-11 focus-visible:ring-0">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!autoToDelete} onOpenChange={() => setAutoToDelete(null)}>
+        <AlertDialogContent className="glass border-white/20 rounded-[28px] max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Rule?</AlertDialogTitle>
+            <AlertDialogDescription>Are you sure you want to permanently delete this automation rule?</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-xl border-none bg-muted hover:bg-muted/80 h-11 focus-visible:ring-0">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (autoToDelete) deleteAutomation(autoToDelete); setAutoToDelete(null); }} className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 h-11 focus-visible:ring-0">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 };
-export default Scenes;-e 
 
---- File: apps/web/src/pages/Energy.tsx ---
+export default Scenes;
 
+--- apps/web/src/pages/Energy.tsx ---
 import { useState, useMemo, useEffect } from "react";
-import { Zap, Plug, Lightbulb, Thermometer, Banknote, Flame, ArrowUpRight, Clock, Droplets, Lock, TrendingUp, TrendingDown, Pencil, Activity } from "lucide-react";
+import { Zap, Plug, Lightbulb, Thermometer, Clock, Droplets, Lock, TrendingUp, TrendingDown, Activity, DollarSign } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
 import { TimeframeToggle, TimeframeMode } from "@/components/livora/TimeframeToggle";
 import { useDevices } from "@/hooks/use-devices";
@@ -1461,9 +2098,6 @@ import { useWebSockets } from "@/hooks/use-websockets";
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -1489,12 +2123,10 @@ const generateSparkline = (data: number[], width: number, height: number) => {
 const Energy = () => {
   const [timeframe, setTimeframe] = useState<TimeframeMode>("week");
   const [selectedBar, setSelectedBar] = useState<number | null>(null);
-  const [energyRate, setEnergyRate] = useState<number>(() => {
-    const saved = localStorage.getItem('livora_energy_rate');
-    return saved ? parseFloat(saved) : 1.15;
-  });
-  const [isRateDialogOpen, setIsRateDialogOpen] = useState(false);
-  const [tempRate, setTempRate] = useState(energyRate.toString());
+
+  // Pobieranie globalnych ustawień z localStorage
+  const energyRate = parseFloat(localStorage.getItem('livora_energy_rate') || '1.15');
+  const currency = localStorage.getItem('livora_currency') || 'PLN';
 
   const { data: devices = [] } = useDevices();
   const { socket } = useWebSockets();
@@ -1635,14 +2267,8 @@ const Energy = () => {
   const maxValueInChart = Math.max(...chartData.map((d: any) => d.value));
   const maxChartValue = maxValueInChart > 0 ? maxValueInChart : 1;
 
-  const handleSaveRate = () => {
-    const parsed = parseFloat(tempRate.replace(',', '.'));
-    if (!isNaN(parsed) && parsed > 0) {
-      setEnergyRate(parsed);
-      localStorage.setItem('livora_energy_rate', parsed.toString());
-      setIsRateDialogOpen(false);
-    }
-  };
+  // Obliczenie aktualnego kosztu
+  const totalCost = todayKwh * energyRate;
 
   return (
     <div className="max-w-[1400px] mx-auto pb-10 flex flex-col gap-6">
@@ -1706,7 +2332,7 @@ const Energy = () => {
 
         <div className="flex flex-col justify-between gap-4 lg:col-span-3 min-h-[260px] lg:h-[260px]">
           <GlassCard className="px-5 py-4 flex-1 flex flex-col justify-center">
-            <p className="text-sm font-medium flex items-center gap-2">
+            <p className="text-sm font-medium flex items-center gap-2 text-foreground">
               <Plug className="h-4 w-4" /> Usage {timeframe === 'week' ? 'this week' : timeframe === 'month' ? 'this month' : 'this year'}
             </p>
             <div className="mt-1">
@@ -1719,22 +2345,17 @@ const Energy = () => {
             </div>
           </GlassCard>
 
-          <GlassCard className="px-5 py-4 flex-1 flex flex-col justify-center relative">
+          <GlassCard className="px-5 py-4 flex-1 flex flex-col justify-center">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-medium flex items-center gap-2">
-                <Banknote className="h-4 w-4" /> Est. Cost
-              </p>
-              <button onClick={() => setIsRateDialogOpen(true)} className="absolute top-4 right-4 h-7 w-7 rounded-lg bg-muted/30 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors">
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <DollarSign className="h-4 w-4" /> Est. Cost
+              </div>
             </div>
             <div className="mt-1">
               <p className="font-display text-4xl font-semibold tracking-tight">
-                {timeframeCost.toFixed(2)}<span className="text-lg text-muted-foreground font-medium ml-1">PLN</span>
+                {currency} {totalCost.toFixed(2)}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Based on {energyRate.toFixed(2)} PLN/kWh
-              </p>
+              <p className="text-xs text-muted-foreground mt-1">Based on {energyRate} {currency}/kWh</p>
             </div>
           </GlassCard>
         </div>
@@ -1769,7 +2390,6 @@ const Energy = () => {
                         <p className="text-[10px] text-muted-foreground uppercase mt-0.5">{dev.room}</p>
                       </div>
                     </div>
-                    {/* Zwiększona czcionka i zachowana idealna spójność wizualna jednostek z kafelkiem Device Breakdown */}
                     <span className="font-display text-base font-bold text-foreground/90 shrink-0">
                       {Math.round(dev.power)} <span className="text-[10px] font-medium text-muted-foreground uppercase">W</span>
                     </span>
@@ -1884,58 +2504,13 @@ const Energy = () => {
         </GlassCard>
       </div>
 
-      {/* SMART ANALYSIS */}
-      <div>
-        <h2 className="font-display text-xl font-semibold mb-4 ml-1">Smart Analysis</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <GlassCard className="p-5 flex items-start gap-4">
-            <div className="h-10 w-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center text-primary"><Flame className="h-5 w-5" /></div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">Top Consumer</p>
-              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                <span className="font-bold text-foreground">Water Heater</span> is responsible for 35% of your total usage. Lowering its target temperature by 2°C could save you ~15 PLN.
-              </p>
-            </div>
-          </GlassCard>
-          <GlassCard className="p-5 flex items-start gap-4">
-            <div className="h-10 w-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center text-primary"><Clock className="h-5 w-5" /></div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">Peak Hours</p>
-              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                Your highest consumption occurs between <span className="font-bold text-foreground">18:00 and 20:00</span>. Consider running heavy appliances later at night.
-              </p>
-            </div>
-          </GlassCard>
-          <GlassCard className="p-5 flex items-start gap-4">
-            <div className="h-10 w-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center text-primary"><ArrowUpRight className="h-5 w-5" /></div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">Trend Watch</p>
-              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                Your overall energy usage is <span className="font-bold text-primary">4% lower</span> compared to the previous period. Great job!
-              </p>
-            </div>
-          </GlassCard>
-        </div>
-      </div>
-
-      <Dialog open={isRateDialogOpen} onOpenChange={setIsRateDialogOpen}>
-        <DialogContent className="glass border-white/20 rounded-[28px] max-w-sm">
-          <DialogHeader><DialogTitle className="font-display">Set Energy Rate</DialogTitle></DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground mb-3">Enter the price per kWh (in PLN) from your energy provider.</p>
-            <Input type="number" step="0.01" value={tempRate} onChange={(e) => setTempRate(e.target.value)} className="bg-background/50 border-white/10 rounded-xl font-display text-lg" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleSaveRate(); }}/>
-          </div>
-          <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setIsRateDialogOpen(false)} className="rounded-xl border-none bg-muted hover:bg-muted/80">Cancel</Button><Button onClick={handleSaveRate} className="rounded-xl">Save changes</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
 
-export default Energy;-e 
+export default Energy;
 
---- File: apps/web/src/pages/Index.tsx ---
-
+--- apps/web/src/pages/Index.tsx ---
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -2020,7 +2595,7 @@ const generateSparkline = (data: number[], width: number, height: number) => {
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [activeScene, setActiveScene] = useState("Natural");
+  const [activeScene, setActiveScene] = useState<string | null>(null);
   const [activeRoomName, setActiveRoomName] = useState("All");
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -2029,6 +2604,15 @@ const Dashboard = () => {
     queryKey: ['rooms'],
     queryFn: async () => {
       const res = await axios.get(`${API_URL}/rooms`);
+      return res.data;
+    }
+  });
+
+  // POBIERANIE SCEN Z BAZY DANYCH
+  const { data: scenes = [] } = useQuery({
+    queryKey: ['scenes'],
+    queryFn: async () => {
+      const res = await axios.get(`${API_URL}/scenes`);
       return res.data;
     }
   });
@@ -2161,6 +2745,19 @@ const Dashboard = () => {
     }, 250);
   };
 
+  // OBSŁUGA WYWOŁYWANIA SCEN Z BAZY DANYCH
+  const handleSceneTrigger = async (sceneName: string) => {
+    setActiveScene(sceneName);
+    const scene = scenes.find((s: any) => s.name === sceneName);
+    if (scene) {
+      try {
+        await axios.post(`${API_URL}/scenes/${scene.id}/trigger`);
+      } catch (error) {
+        toast.error("Failed to trigger scene");
+      }
+    }
+  };
+
   const formatRemaining = (sec: number) => {
     if (sec <= 0) return "Disabled";
     const h = Math.floor(sec / 3600);
@@ -2173,7 +2770,7 @@ const Dashboard = () => {
   const roomNames = ["All", ...rooms.map((r: any) => r.name)];
   if (devices.some((d: any) => !d.room_id)) roomNames.push("Unassigned");
 
-  const sceneNames = ["Natural", "Relax", "Party", "Goodnight"];
+  const sceneNames = scenes.map((s: any) => s.name);
 
   const filteredDevices = activeRoomName === "All" 
     ? devices 
@@ -2357,7 +2954,11 @@ const Dashboard = () => {
         <div className="flex items-center justify-between gap-4 w-full">
           <h2 className="font-display text-xl font-semibold shrink-0">Quick scenes</h2>
           <div className="flex-1 flex justify-end">
-             <RoomFilter rooms={sceneNames} active={activeScene} onChange={setActiveScene} />
+            {scenes.length > 0 ? (
+              <RoomFilter rooms={sceneNames} active={activeScene || ""} onChange={handleSceneTrigger} />
+            ) : (
+              <p className="text-sm text-muted-foreground px-2">No scenes yet</p>
+            )}
           </div>
         </div>
       </div>
@@ -2480,10 +3081,408 @@ const Dashboard = () => {
   );
 };
 
-export default Dashboard;-e 
+export default Dashboard;
 
---- File: apps/web/src/pages/NotFound.tsx ---
+--- apps/web/src/pages/Settings.tsx ---
+import { useState, useEffect } from "react";
+import { User, Palette, Zap, Bell, Server, Check, Image as ImageIcon, LogOut, Key, UserPlus, Trash2 } from "lucide-react";
+import { GlassCard } from "@/components/livora/GlassCard";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { auth, User as AuthUser } from "@/lib/auth";
+import { useNavigate } from "react-router-dom";
+import { useTheme } from "@/hooks/use-theme";
 
+const API_URL = import.meta.env.VITE_API_URL;
+
+const SECTIONS = [
+  { id: "account", label: "Account & Profile", icon: User },
+  { id: "general", label: "Home System", icon: Server },
+  { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "energy", label: "Energy & Billing", icon: Zap },
+  { id: "notifications", label: "Notifications", icon: Bell },
+];
+
+const Settings = () => {
+  const navigate = useNavigate();
+  const { theme, setTheme } = useTheme(); 
+  const [activeSection, setActiveSection] = useState("account");
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(auth.getCurrentUser());
+  const isOwner = currentUser?.role === 'owner';
+
+  const [homeUsers, setHomeUsers] = useState<AuthUser[]>([]);
+
+  const loadHomeUsers = async () => {
+    if (currentUser?.homeId) {
+      const users = await auth.getUsersInHome(currentUser.homeId);
+      setHomeUsers(users);
+    }
+  };
+
+  useEffect(() => {
+    loadHomeUsers();
+  }, [currentUser]);
+
+  const [userName, setUserName] = useState(currentUser?.username || '');
+  const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatar || '');
+
+  // HASŁO -> PIN
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+
+  const [inviteUsername, setInviteUsername] = useState("");
+
+  const [homeName, setHomeName] = useState(localStorage.getItem('livora_home_name') || 'My Smart Home');
+  const [timeFormat, setTimeFormat] = useState(localStorage.getItem('livora_time_format') || '24h');
+  
+  const [primaryDashboard, setPrimaryDashboard] = useState(localStorage.getItem('livora_primary_dash') || '/');
+  const [energyRate, setEnergyRate] = useState(localStorage.getItem('livora_energy_rate') || '1.15');
+  const [currency, setCurrency] = useState(localStorage.getItem('livora_currency') || 'PLN');
+  const [sysSounds, setSysSounds] = useState(localStorage.getItem('livora_sys_sounds') !== 'false');
+  const [alertOffline, setAlertOffline] = useState(localStorage.getItem('livora_alert_offline') !== 'false');
+  const [alertBattery, setAlertBattery] = useState(localStorage.getItem('livora_alert_battery') !== 'false');
+
+  const handleSave = async () => {
+    await auth.updateProfile({ username: userName, avatarUrl: avatarUrl });
+    
+    if (oldPassword && newPassword) {
+      const pwSuccess = await auth.changePassword(oldPassword, newPassword);
+      if (pwSuccess) {
+        setOldPassword("");
+        setNewPassword("");
+        toast.success("PIN changed successfully");
+      } else {
+        toast.error("Incorrect current PIN");
+        return; 
+      }
+    }
+    
+    localStorage.setItem('livora_home_name', homeName);
+    localStorage.setItem('livora_time_format', timeFormat);
+    localStorage.setItem('livora_primary_dash', primaryDashboard);
+    localStorage.setItem('livora_energy_rate', energyRate);
+    localStorage.setItem('livora_currency', currency);
+    localStorage.setItem('livora_sys_sounds', String(sysSounds));
+    localStorage.setItem('livora_alert_offline', String(alertOffline));
+    localStorage.setItem('livora_alert_battery', String(alertBattery));
+
+    window.dispatchEvent(new Event('user_settings_changed'));
+    
+    toast.success("Settings saved successfully", {
+      icon: <Check className="h-4 w-4 text-emerald-500" />
+    });
+  };
+
+  const handleInvite = async () => {
+    if (!inviteUsername.trim() || !currentUser?.homeId) return;
+    const success = await auth.inviteUserToHome(inviteUsername, currentUser.homeId);
+    if (success) {
+      toast.success(`${inviteUsername} was added to your home!`);
+      setInviteUsername("");
+      await loadHomeUsers();
+    } else {
+      toast.error(`User ${inviteUsername} not found.`);
+    }
+  };
+
+  const handleRemoveUser = async (userId: string) => {
+    await auth.removeUserFromHome(userId);
+    toast.success("User removed from home");
+    await loadHomeUsers();
+  };
+
+  const handleRoleChange = async (userId: string, role: string) => {
+    await auth.changeUserRole(userId, role as 'owner' | 'member');
+    toast.success("User role updated");
+    await loadHomeUsers();
+  };
+
+  const handleLogout = () => {
+    auth.logout();
+    navigate("/login");
+  };
+
+  return (
+    <div className="space-y-6 max-w-[1400px] mx-auto pb-10">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-3xl font-semibold">Settings</h1>
+          <p className="text-sm text-muted-foreground mt-1">Manage your account and home configuration.</p>
+        </div>
+        <Button 
+          onClick={handleSave} 
+          className="rounded-full px-6 shadow-md h-11 focus-visible:ring-0 active:scale-[0.98] transition-transform"
+        >
+          Save Changes
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-6 items-start mt-6">
+        
+        {/* LEWA KOLUMNA: MENU */}
+        <div className="flex flex-col gap-4">
+          <GlassCard className="p-3 flex flex-col gap-1 w-full">
+            {SECTIONS.map((sec) => (
+              <button
+                key={sec.id}
+                onClick={() => setActiveSection(sec.id)}
+                className={cn(
+                  "w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium outline-none focus-visible:ring-0 active:scale-[0.98] transition-all",
+                  activeSection === sec.id
+                    ? "bg-primary text-primary-foreground shadow-md"
+                    : "text-foreground/70 bg-transparent hover:bg-muted/30"
+                )}
+              >
+                <sec.icon className="h-4 w-4 shrink-0" />
+                <span className="truncate">{sec.label}</span>
+              </button>
+            ))}
+          </GlassCard>
+
+          <button 
+            onClick={handleLogout} 
+            className="w-full flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold border border-destructive/20 bg-destructive/10 text-destructive active:scale-[0.98] transition-transform outline-none focus-visible:ring-0 shadow-sm"
+          >
+            <LogOut className="h-4 w-4 shrink-0" /> Log out
+          </button>
+        </div>
+
+        {/* PRAWA KOLUMNA: ZAWARTOŚĆ */}
+        <GlassCard className="p-6 md:p-8">
+          
+          {/* ACCOUNT & PROFILE */}
+          {activeSection === "account" && (
+            <div className="space-y-10 animate-fade-in">
+              <div>
+                <h2 className="font-display text-xl font-semibold mb-1">Account & Profile</h2>
+                <p className="text-sm text-muted-foreground">Manage your personal identity.</p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center gap-6">
+                <div className="h-20 w-20 rounded-full bg-muted border-2 border-primary/20 flex items-center justify-center overflow-hidden shrink-0">
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="font-display text-2xl font-bold uppercase">{userName.charAt(0) || '?'}</span>
+                  )}
+                </div>
+                <div className="space-y-2 flex-1">
+                  <p className="text-sm font-medium">Profile Picture URL</p>
+                  <div className="relative">
+                    <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input value={avatarUrl} onChange={e => setAvatarUrl(e.target.value)} placeholder="https://..." className="pl-10 h-12 rounded-xl bg-background/50 border-white/10 text-base max-w-sm focus-visible:ring-1" />
+                  </div>
+                </div>
+              </div>
+              
+              <div className="space-y-3 pt-6 border-t border-border/40">
+                <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Display Name</label>
+                <Input value={userName} onChange={e => setUserName(e.target.value)} className="bg-background/50 border-white/10 rounded-xl text-base h-12 px-4 max-w-sm focus-visible:ring-1" />
+              </div>
+
+              {/* SEKCJA: ZMIANA PINU */}
+              <div className="space-y-4 pt-6 border-t border-border/40">
+                <h3 className="text-sm font-semibold flex items-center gap-2"><Key className="h-4 w-4" /> Change PIN</h3>
+                <div className="grid gap-4 sm:grid-cols-2 max-w-2xl">
+                  <Input type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} placeholder="Current PIN" className="bg-background/50 border-white/10 rounded-xl text-base h-12 px-4 focus-visible:ring-1 tracking-widest font-display" />
+                  <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="New PIN (min. 4 digits)" className="bg-background/50 border-white/10 rounded-xl text-base h-12 px-4 focus-visible:ring-1 tracking-widest font-display" />
+                </div>
+              </div>
+
+              {/* SEKCJA: UŻYTKOWNICY W DOMU */}
+              <div className="space-y-4 pt-6 border-t border-border/40">
+                <h3 className="text-sm font-semibold flex items-center gap-2"><UserPlus className="h-4 w-4" /> Home Members</h3>
+                <p className="text-xs text-muted-foreground mb-4">People who have access to this smart home.</p>
+                
+                {/* Lista użytkowników */}
+                <div className="grid gap-3 max-w-2xl">
+                  {homeUsers.map(u => (
+                    <div key={u.id} className="flex items-center justify-between p-3 rounded-2xl bg-background/40 border border-white/5">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center overflow-hidden shrink-0 border border-white/10">
+                          {u.avatar ? <img src={u.avatar} alt="Avatar" className="w-full h-full object-cover" /> : <span className="font-bold text-xs uppercase">{u.username.charAt(0)}</span>}
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold">{u.username} {u.id === currentUser?.id && <span className="text-muted-foreground font-normal">(You)</span>}</p>
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">{u.role}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <Select 
+                          value={u.role} 
+                          onValueChange={(v) => handleRoleChange(u.id, v)} 
+                          disabled={!isOwner || u.id === currentUser?.id}
+                        >
+                          <SelectTrigger className="w-[100px] h-9 rounded-lg bg-background/50 border-white/10 text-xs focus:ring-0">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="rounded-xl border-white/10 glass">
+                            <SelectItem value="member" className="text-xs cursor-pointer">Member</SelectItem>
+                            <SelectItem value="owner" className="text-xs cursor-pointer">Owner</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        
+                        {isOwner && u.id !== currentUser?.id && (
+                          <button 
+                            onClick={() => handleRemoveUser(u.id)}
+                            className="h-9 w-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors active:scale-95 outline-none focus-visible:ring-0"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Dodawanie nowych (tylko dla właścicieli) */}
+                {isOwner && (
+                  <div className="flex items-center gap-3 max-w-sm mt-4">
+                    <Input 
+                      value={inviteUsername} 
+                      onChange={e => setInviteUsername(e.target.value)} 
+                      placeholder="Exact username" 
+                      className="bg-background/50 border-white/10 rounded-xl text-base h-11 px-4 focus-visible:ring-1" 
+                    />
+                    <Button 
+                      onClick={handleInvite} 
+                      className="h-11 px-6 rounded-xl shadow-md focus-visible:ring-0 shrink-0"
+                    >
+                      Add User
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* HOME SYSTEM */}
+          {activeSection === "general" && (
+            <div className="space-y-8 animate-fade-in">
+              <div>
+                <h2 className="font-display text-xl font-semibold mb-1">Home System</h2>
+                <p className="text-sm text-muted-foreground">Global configuration for this house.</p>
+              </div>
+              <div className="space-y-3">
+                <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Home Name</label>
+                <Input value={homeName} onChange={e => setHomeName(e.target.value)} className="bg-background/50 border-white/10 rounded-xl text-base h-12 px-4 max-w-md focus-visible:ring-1" />
+              </div>
+              <div className="space-y-3 pt-4 border-t border-border/40">
+                <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Time Format</label>
+                <Select value={timeFormat} onValueChange={setTimeFormat}>
+                  <SelectTrigger className="w-full max-w-xs h-12 text-base rounded-xl bg-background/50 border-white/10 px-4 focus:ring-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-white/10 glass">
+                    <SelectItem value="24h" className="py-3 cursor-pointer">24-hour (14:30)</SelectItem>
+                    <SelectItem value="12h" className="py-3 cursor-pointer">12-hour (02:30 PM)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {/* APPEARANCE */}
+          {activeSection === "appearance" && (
+            <div className="space-y-8 animate-fade-in">
+              <div>
+                <h2 className="font-display text-xl font-semibold mb-1">Appearance</h2>
+                <p className="text-sm text-muted-foreground">Customize the look and feel.</p>
+              </div>
+              <div className="space-y-3">
+                <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Color Theme</label>
+                <Select value={theme} onValueChange={(v) => setTheme(v as any)}>
+                  <SelectTrigger className="w-full max-w-xs h-12 text-base rounded-xl bg-background/50 border-white/10 px-4 focus:ring-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-white/10 glass">
+                    <SelectItem value="system" className="py-3 cursor-pointer">System default</SelectItem>
+                    <SelectItem value="light" className="py-3 cursor-pointer">Light</SelectItem>
+                    <SelectItem value="dark" className="py-3 cursor-pointer">Dark</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-3 pt-4 border-t border-border/40">
+                <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Primary View</label>
+                <Select value={primaryDashboard} onValueChange={setPrimaryDashboard}>
+                  <SelectTrigger className="w-full max-w-xs h-12 text-base rounded-xl bg-background/50 border-white/10 px-4 focus:ring-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-white/10 glass">
+                    <SelectItem value="/" className="py-3 cursor-pointer">Dashboard</SelectItem>
+                    <SelectItem value="/devices" className="py-3 cursor-pointer">Devices & Rooms</SelectItem>
+                    <SelectItem value="/energy" className="py-3 cursor-pointer">Energy Overview</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {/* ENERGY */}
+          {activeSection === "energy" && (
+            <div className="space-y-8 animate-fade-in">
+              <div>
+                <h2 className="font-display text-xl font-semibold mb-1">Energy & Billing</h2>
+                <p className="text-sm text-muted-foreground">Configure rates for accurate cost estimations.</p>
+              </div>
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="space-y-3">
+                  <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Price per kWh</label>
+                  <Input type="number" step="0.01" value={energyRate} onChange={e => setEnergyRate(e.target.value)} className="bg-background/50 border-white/10 rounded-xl h-12 px-4 focus-visible:ring-1" />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Currency</label>
+                  <Select value={currency} onValueChange={setCurrency}>
+                    <SelectTrigger className="w-full h-12 rounded-xl bg-background/50 border-white/10 px-4 focus:ring-0"><SelectValue /></SelectTrigger>
+                    <SelectContent className="rounded-xl glass">
+                      <SelectItem value="PLN" className="cursor-pointer">PLN (Złoty)</SelectItem>
+                      <SelectItem value="EUR" className="cursor-pointer">EUR (Euro)</SelectItem>
+                      <SelectItem value="USD" className="cursor-pointer">USD (Dollar)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* NOTIFICATIONS */}
+          {activeSection === "notifications" && (
+            <div className="space-y-8 animate-fade-in">
+              <div>
+                <h2 className="font-display text-xl font-semibold mb-1">Notifications</h2>
+                <p className="text-sm text-muted-foreground">Control what gets your attention.</p>
+              </div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-background/40 border border-white/5">
+                  <div><p className="text-sm font-semibold">System Sounds</p><p className="text-xs text-muted-foreground">Play beeping sounds on alarms.</p></div>
+                  <Switch checked={sysSounds} onCheckedChange={setSysSounds} />
+                </div>
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-background/40 border border-white/5">
+                  <div><p className="text-sm font-semibold">Offline Alerts</p><p className="text-xs text-muted-foreground">Notify when a device drops off.</p></div>
+                  <Switch checked={alertOffline} onCheckedChange={setAlertOffline} />
+                </div>
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-background/40 border border-white/5">
+                  <div><p className="text-sm font-semibold">Low Battery Warnings</p><p className="text-xs text-muted-foreground">Alert when sensor battery is below 15%.</p></div>
+                  <Switch checked={alertBattery} onCheckedChange={setAlertBattery} />
+                </div>
+              </div>
+            </div>
+          )}
+
+        </GlassCard>
+      </div>
+    </div>
+  );
+};
+
+export default Settings;
+
+--- apps/web/src/pages/NotFound.tsx ---
 import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
 
@@ -2508,10 +3507,105 @@ const NotFound = () => {
 };
 
 export default NotFound;
--e 
 
---- File: apps/web/src/pages/Devices.tsx ---
 
+--- apps/web/src/pages/Login.tsx ---
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { auth } from "@/lib/auth";
+import { GlassCard } from "@/components/livora/GlassCard";
+import { Home, Delete } from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+export default function Login() {
+  const [pin, setPin] = useState("");
+  const navigate = useNavigate();
+
+  const handleKeyPress = async (digit: number) => {
+    if (pin.length < 6) {
+      const newPin = pin + digit.toString();
+      setPin(newPin);
+      
+      if (newPin.length === 6) {
+        try {
+          const user = await auth.kioskLogin(newPin);
+          toast.success(`Welcome to Smartify, ${user.username}!`);
+          navigate("/");
+        } catch (error) {
+          toast.error("Incorrect PIN");
+          setPin("");
+        }
+      }
+    }
+  };
+
+  const handleDelete = () => setPin(p => p.slice(0, -1));
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 bg-background relative overflow-hidden select-none">
+      {/* GLOW Z DWÓCH STRON */}
+      <div className="absolute top-[-10%] left-[-10%] w-[60vw] h-[60vw] max-w-[600px] max-h-[600px] bg-primary/20 rounded-full blur-[120px] pointer-events-none opacity-60" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[60vw] h-[60vw] max-w-[600px] max-h-[600px] bg-primary/20 rounded-full blur-[120px] pointer-events-none opacity-60" />
+      
+      <GlassCard className="w-full max-w-sm p-8 relative z-10 animate-in fade-in zoom-in duration-500">
+        <div className="flex flex-col items-center mb-10">
+          <div className="h-16 w-16 bg-primary rounded-3xl flex items-center justify-center text-primary-foreground shadow-lg mb-4">
+            <Home className="h-8 w-8" />
+          </div>
+          <h1 className="font-display text-2xl font-semibold text-center leading-tight">Home Security</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Enter 6-digit PIN to unlock</p>
+        </div>
+
+        <div className="flex justify-center gap-4 mb-10 h-4">
+          {[...Array(6)].map((_, i) => (
+            <div 
+              key={i} 
+              className={cn(
+                "w-3.5 h-3.5 rounded-full transition-all duration-300",
+                i < pin.length 
+                  ? "bg-primary scale-110 shadow-[0_0_12px_rgba(var(--primary),0.6)]" 
+                  : "bg-muted border border-border/50"
+              )} 
+            />
+          ))}
+        </div>
+
+        <div className="grid grid-cols-3 gap-4 max-w-[280px] mx-auto">
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
+            <button 
+              key={n} 
+              onClick={() => handleKeyPress(n)} 
+              className="h-16 rounded-full bg-background/60 hover:bg-background border border-white/5 text-2xl font-display font-semibold active:scale-95 transition-transform focus-visible:ring-0 outline-none shadow-sm"
+            >
+              {n}
+            </button>
+          ))}
+          <button 
+            onClick={() => setPin('')} 
+            className="h-16 rounded-full text-muted-foreground font-semibold hover:bg-background/40 active:scale-95 transition-transform outline-none focus-visible:ring-0 uppercase text-sm tracking-wider"
+          >
+            Clear
+          </button>
+          <button 
+            onClick={() => handleKeyPress(0)} 
+            className="h-16 rounded-full bg-background/60 hover:bg-background border border-white/5 text-2xl font-display font-semibold active:scale-95 transition-transform outline-none focus-visible:ring-0 shadow-sm"
+          >
+            0
+          </button>
+          <button 
+            onClick={handleDelete} 
+            className="h-16 rounded-full text-muted-foreground flex items-center justify-center hover:bg-background/40 active:scale-95 transition-transform outline-none focus-visible:ring-0"
+          >
+            <Delete className="h-6 w-6"/>
+          </button>
+        </div>
+      </GlassCard>
+    </div>
+  );
+}
+
+--- apps/web/src/pages/Devices.tsx ---
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { 
@@ -3791,198 +4885,9 @@ const Devices = () => {
   );
 };
 
-export default Devices;-e 
+export default Devices;
 
---- File: apps/web/src/App.old.css ---
-
-.counter {
-  font-size: 16px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  color: var(--accent);
-  background: var(--accent-bg);
-  border: 2px solid transparent;
-  transition: border-color 0.3s;
-  margin-bottom: 24px;
-
-  &:hover {
-    border-color: var(--accent-border);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-}
-
-.hero {
-  position: relative;
-
-  .base,
-  .framework,
-  .vite {
-    inset-inline: 0;
-    margin: 0 auto;
-  }
-
-  .base {
-    width: 170px;
-    position: relative;
-    z-index: 0;
-  }
-
-  .framework,
-  .vite {
-    position: absolute;
-  }
-
-  .framework {
-    z-index: 1;
-    top: 34px;
-    height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
-      scale(1.4);
-  }
-
-  .vite {
-    z-index: 0;
-    top: 107px;
-    height: 26px;
-    width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
-      scale(0.8);
-  }
-}
-
-#center {
-  display: flex;
-  flex-direction: column;
-  gap: 25px;
-  place-content: center;
-  place-items: center;
-  flex-grow: 1;
-
-  @media (max-width: 1024px) {
-    padding: 32px 20px 24px;
-    gap: 18px;
-  }
-}
-
-#next-steps {
-  display: flex;
-  border-top: 1px solid var(--border);
-  text-align: left;
-
-  & > div {
-    flex: 1 1 0;
-    padding: 32px;
-    @media (max-width: 1024px) {
-      padding: 24px 20px;
-    }
-  }
-
-  .icon {
-    margin-bottom: 16px;
-    width: 22px;
-    height: 22px;
-  }
-
-  @media (max-width: 1024px) {
-    flex-direction: column;
-    text-align: center;
-  }
-}
-
-#docs {
-  border-right: 1px solid var(--border);
-
-  @media (max-width: 1024px) {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-}
-
-#next-steps ul {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  gap: 8px;
-  margin: 32px 0 0;
-
-  .logo {
-    height: 18px;
-  }
-
-  a {
-    color: var(--text-h);
-    font-size: 16px;
-    border-radius: 6px;
-    background: var(--social-bg);
-    display: flex;
-    padding: 6px 12px;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    transition: box-shadow 0.3s;
-
-    &:hover {
-      box-shadow: var(--shadow);
-    }
-    .button-icon {
-      height: 18px;
-      width: 18px;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    margin-top: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-
-    li {
-      flex: 1 1 calc(50% - 8px);
-    }
-
-    a {
-      width: 100%;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-  }
-}
-
-#spacer {
-  height: 88px;
-  border-top: 1px solid var(--border);
-  @media (max-width: 1024px) {
-    height: 48px;
-  }
-}
-
-.ticks {
-  position: relative;
-  width: 100%;
-
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    top: -4.5px;
-    border: 5px solid transparent;
-  }
-
-  &::before {
-    left: 0;
-    border-left-color: var(--border);
-  }
-  &::after {
-    right: 0;
-    border-right-color: var(--border);
-  }
-}
--e 
-
---- File: apps/web/src/vite-env.d.ts ---
-
+--- apps/web/src/vite-env.d.ts ---
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
@@ -3992,10 +4897,9 @@ interface ImportMetaEnv {
 
 interface ImportMeta {
     readonly env: ImportMetaEnv;
-}-e 
+}
 
---- File: apps/web/src/components/NavLink.tsx ---
-
+--- apps/web/src/components/NavLink.tsx ---
 import { NavLink as RouterNavLink, NavLinkProps } from "react-router-dom";
 import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
@@ -4024,10 +4928,9 @@ const NavLink = forwardRef<HTMLAnchorElement, NavLinkCompatProps>(
 NavLink.displayName = "NavLink";
 
 export { NavLink };
--e 
 
---- File: apps/web/src/components/livora/MetricBadge.tsx ---
 
+--- apps/web/src/components/livora/MetricBadge.tsx ---
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -4056,10 +4959,9 @@ export function MetricBadge({ value, className, inverted = false }: MetricBadgeP
     </span>
   );
 }
--e 
 
---- File: apps/web/src/components/livora/HomeAwayToggle.tsx ---
 
+--- apps/web/src/components/livora/HomeAwayToggle.tsx ---
 import { House, Plane } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -4233,10 +5135,9 @@ export function HomeAwayToggle({ initialMode = "home", onChange, className }: Ho
       </button>
     </div>
   );
-}-e 
+}
 
---- File: apps/web/src/components/livora/RoomFilter.tsx ---
-
+--- apps/web/src/components/livora/RoomFilter.tsx ---
 import { cn } from "@/lib/utils";
 
 interface RoomFilterProps {
@@ -4269,10 +5170,9 @@ export function RoomFilter({ rooms, active, onChange, className }: RoomFilterPro
     </div>
   );
 }
--e 
 
---- File: apps/web/src/components/livora/DeviceTile.tsx ---
 
+--- apps/web/src/components/livora/DeviceTile.tsx ---
 import { LucideIcon } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { GlassCard } from "./GlassCard";
@@ -4377,10 +5277,9 @@ export function DeviceTile({
       </div>
     </GlassCard>
   );
-}-e 
+}
 
---- File: apps/web/src/components/livora/ColorWheel.tsx ---
-
+--- apps/web/src/components/livora/ColorWheel.tsx ---
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -4463,10 +5362,9 @@ export function ColorWheel({ hue, saturation, onChange, className }: ColorWheelP
       />
     </div>
   );
-}-e 
+}
 
---- File: apps/web/src/components/livora/GlassCard.tsx ---
-
+--- apps/web/src/components/livora/GlassCard.tsx ---
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
@@ -4494,10 +5392,9 @@ export const GlassCard = React.forwardRef<HTMLDivElement, GlassCardProps>(
   },
 );
 GlassCard.displayName = "GlassCard";
--e 
 
---- File: apps/web/src/components/livora/ScenePill.tsx ---
 
+--- apps/web/src/components/livora/ScenePill.tsx ---
 import { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -4526,12 +5423,14 @@ export function ScenePill({ icon: Icon, label, active, onClick, className }: Sce
     </button>
   );
 }
--e 
 
---- File: apps/web/src/components/livora/AppSidebar.tsx ---
 
-import { LayoutDashboard, Lightbulb, BarChart3, Sparkles, Settings, Home } from "lucide-react";
+--- apps/web/src/components/livora/AppSidebar.tsx ---
+import { LayoutDashboard, Lightbulb, BarChart3, Sparkles, Settings as SettingsIcon, Home } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
+import { useState, useEffect } from "react";
+import { auth, User as AuthUser } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 import {
   Sidebar,
   SidebarContent,
@@ -4555,38 +5454,72 @@ const items = [
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
+  
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(auth.getCurrentUser());
+
+  useEffect(() => {
+    const handleAuthChange = () => setCurrentUser(auth.getCurrentUser());
+    window.addEventListener('auth_changed', handleAuthChange);
+    window.addEventListener('user_settings_changed', handleAuthChange);
+    return () => {
+      window.removeEventListener('auth_changed', handleAuthChange);
+      window.removeEventListener('user_settings_changed', handleAuthChange);
+    };
+  }, []);
 
   return (
-    <Sidebar collapsible="icon" className="border-r-0">
-      <SidebarHeader className="px-4 py-5">
-        <NavLink to="/" className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-            <Home className="h-4 w-4" />
+    <Sidebar 
+      collapsible="icon" 
+      // ZMIANA: Dodano "data-[state=collapsed]:mr-6" oraz animację marginesu
+      className="border-r border-border/30 data-[state=collapsed]:mr-6 transition-[margin] duration-200 ease-linear"
+      style={{ 
+        "--sidebar-width": "16.5rem",
+        "--sidebar-width-icon": "4.5rem" 
+      } as React.CSSProperties}
+    >
+      {/* NAGŁÓWEK (Logo) */}
+      <SidebarHeader className={cn("py-6 transition-all", collapsed ? "px-0 flex items-center justify-center" : "px-4")}>
+        <NavLink to="/" className={cn("flex items-center outline-none w-full", collapsed ? "justify-center" : "gap-3")}>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md">
+            <Home className="h-5 w-5" />
           </div>
           {!collapsed && (
-            <div className="flex flex-col leading-tight">
-              <span className="font-display text-base font-semibold tracking-tight">Smartify</span>
-              <span className="text-[11px] text-muted-foreground">Smart home</span>
+            <div className="flex flex-col leading-tight overflow-hidden">
+              <span className="font-display text-base font-semibold tracking-tight whitespace-nowrap">Smartify</span>
+              <span className="text-[11px] text-muted-foreground whitespace-nowrap">Smart home</span>
             </div>
           )}
         </NavLink>
       </SidebarHeader>
 
-      <SidebarContent className="px-2">
+      {/* ZAWARTOŚĆ GŁÓWNEGO MENU */}
+      <SidebarContent className={cn("transition-all", collapsed ? "px-0 mt-2" : "px-4 mt-0")}>
         <SidebarGroup>
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="gap-2">
               {items.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild className="h-11 rounded-2xl">
+                  <SidebarMenuButton 
+                    asChild 
+                    tooltip={item.title} 
+                    className={cn(
+                      "p-0 !bg-transparent hover:!bg-transparent transition-all",
+                      collapsed ? "h-12 w-12 mx-auto" : "h-auto w-full"
+                    )}
+                  >
                     <NavLink
                       to={item.url}
                       end={item.url === "/"}
-                      className="flex items-center gap-3 px-3 text-sm font-medium text-foreground/70 hover:text-foreground"
-                      activeClassName="!bg-primary !text-primary-foreground hover:!text-primary-foreground"
+                      className={cn(
+                        "flex items-center text-sm font-medium text-foreground/70 active:scale-[0.98] transition-all outline-none rounded-2xl",
+                        collapsed 
+                          ? "justify-center w-full h-full hover:bg-muted/30" 
+                          : "gap-3 px-4 py-3 w-full hover:bg-muted/30"
+                      )}
+                      activeClassName="!bg-primary !text-primary-foreground shadow-md hover:!bg-primary"
                     >
-                      <item.icon className="h-[18px] w-[18px]" />
-                      {!collapsed && <span>{item.title}</span>}
+                      <item.icon className="h-5 w-5 shrink-0" />
+                      {!collapsed && <span className="whitespace-nowrap">{item.title}</span>}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -4596,40 +5529,202 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="p-2">
+      {/* STOPKA (Ustawienia + Awatar) */}
+      <SidebarFooter className={cn("transition-all", collapsed ? "px-0 pb-6 flex flex-col items-center gap-4" : "p-4 pb-6")}>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild className="h-11 rounded-2xl">
+            <SidebarMenuButton 
+              asChild 
+              tooltip="Settings" 
+              className={cn(
+                "p-0 !bg-transparent hover:!bg-transparent transition-all",
+                collapsed ? "h-12 w-12 mx-auto" : "h-auto w-full"
+              )}
+            >
               <NavLink
                 to="/settings"
-                className="flex items-center gap-3 px-3 text-sm font-medium text-foreground/70 hover:text-foreground"
-                activeClassName="!bg-primary !text-primary-foreground"
+                className={cn(
+                  "flex items-center text-sm font-medium text-foreground/70 active:scale-[0.98] transition-all outline-none rounded-2xl",
+                  collapsed 
+                    ? "justify-center w-full h-full hover:bg-muted/30" 
+                    : "gap-3 px-4 py-3 w-full hover:bg-muted/30"
+                )}
+                activeClassName="!bg-primary !text-primary-foreground shadow-md hover:!bg-primary"
               >
-                <Settings className="h-[18px] w-[18px]" />
-                {!collapsed && <span>Settings</span>}
+                <SettingsIcon className="h-5 w-5 shrink-0" />
+                {!collapsed && <span className="whitespace-nowrap">Settings</span>}
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        {!collapsed && (
-          <div className="mt-2 flex items-center gap-3 rounded-2xl glass p-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/40 font-display text-sm font-semibold">
-              P
+
+        {currentUser && (
+          <div className={cn(
+            "flex items-center transition-all",
+            collapsed ? "justify-center w-full" : "mt-2 gap-3 rounded-2xl glass p-3 w-full border border-white/5"
+          )}>
+            <div className={cn(
+              "flex shrink-0 items-center justify-center bg-primary/10 overflow-hidden font-display font-semibold uppercase text-primary border border-primary/20 shadow-sm rounded-xl",
+              collapsed ? "h-12 w-12" : "h-10 w-10"
+            )}>
+              {currentUser.avatar ? (
+                <img src={currentUser.avatar} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                currentUser.username.charAt(0)
+              )}
             </div>
-            <div className="flex-1 leading-tight">
-              <p className="text-sm font-semibold text-foreground">Patryk</p>
-              <p className="text-xs text-muted-foreground">Owner</p>
-            </div>
+            {!collapsed && (
+              <div className="flex-1 leading-tight min-w-0">
+                <p className="text-sm font-semibold text-foreground whitespace-nowrap">{currentUser.username}</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">{currentUser.role === 'owner' ? 'Owner' : 'Member'}</p>
+              </div>
+            )}
           </div>
         )}
       </SidebarFooter>
     </Sidebar>
   );
 }
--e 
 
---- File: apps/web/src/components/livora/TimeframeToggle.tsx ---
+--- apps/web/src/components/livora/LockScreen.tsx ---
+import { useState, useEffect } from "react";
+import { useWebSockets } from "@/hooks/use-websockets";
+import { auth } from "@/lib/auth";
+import axios from "axios";
+import { Lock, Delete } from "lucide-react";
+import { cn } from "@/lib/utils";
 
+const API_URL = import.meta.env.VITE_API_URL;
+
+export function LockScreen() {
+  const { socket } = useWebSockets();
+  const [isLocked, setIsLocked] = useState(false);
+  const [showPad, setShowPad] = useState(false);
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    axios.get(`${API_URL}/presence`).then(res => {
+      if (res.data.mode === 'away') setIsLocked(true);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    const handlePresence = (data: any) => {
+      if (data.mode === 'away') {
+         setIsLocked(true);
+         setShowPad(false);
+         setPin("");
+      } else {
+         setIsLocked(false);
+      }
+    };
+    socket.on('presence_update', handlePresence);
+    return () => { socket.off('presence_update', handlePresence); };
+  }, [socket]);
+
+  const handleKeyPress = (digit: number) => {
+    setError(false);
+    if (pin.length < 6) {
+      const newPin = pin + digit.toString();
+      setPin(newPin);
+      if (newPin.length === 6) verify(newPin);
+    }
+  };
+
+  const verify = async (testPin: string) => {
+    const valid = await auth.verifyPin(testPin);
+    if (valid) {
+      await axios.post(`${API_URL}/presence`, { mode: 'home' });
+      setIsLocked(false);
+      setPin("");
+      setShowPad(false);
+    } else {
+      setError(true);
+      setTimeout(() => setPin(""), 500); 
+    }
+  };
+
+  if (!isLocked) return null;
+
+  return (
+    <div 
+      className="fixed inset-0 z-[100] bg-background text-foreground flex items-center justify-center transition-opacity duration-1000 overflow-hidden select-none"
+      onClick={() => !showPad && setShowPad(true)}
+    >
+      {/* GLOW Z DWÓCH STRON - Dokładnie taki sam jak w menu i na ekranie logowania */}
+      <div className="absolute top-[-10%] left-[-10%] w-[60vw] h-[60vw] max-w-[600px] max-h-[600px] bg-primary/20 rounded-full blur-[120px] pointer-events-none opacity-60" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[60vw] h-[60vw] max-w-[600px] max-h-[600px] bg-primary/20 rounded-full blur-[120px] pointer-events-none opacity-60" />
+
+      {!showPad ? (
+         <div className="flex flex-col items-center opacity-70 animate-pulse cursor-pointer relative z-10">
+           <Lock className="h-8 w-8 mb-4" />
+           <p className="text-sm uppercase tracking-widest font-semibold">System Armed</p>
+           <p className="text-xs text-muted-foreground mt-2">Tap to unlock</p>
+         </div>
+      ) : (
+        <div className="animate-in fade-in zoom-in duration-300 w-full max-w-sm p-6 relative z-10" onClick={e => e.stopPropagation()}>
+           <div className="flex flex-col items-center mb-10">
+             <div className="h-16 w-16 rounded-3xl bg-primary/20 flex items-center justify-center mb-4 border border-primary/30">
+               <Lock className="h-7 w-7 text-primary" />
+             </div>
+             <h2 className="text-2xl font-display font-semibold">Enter PIN</h2>
+             <p className={cn("text-sm mt-1 transition-colors", error ? "text-destructive font-medium" : "text-muted-foreground")}>
+               {error ? "Incorrect PIN" : "To disarm system"}
+             </p>
+           </div>
+           
+           <div className="flex justify-center gap-4 mb-10 h-4">
+             {[...Array(6)].map((_, i) => (
+               <div 
+                  key={i} 
+                  className={cn(
+                    "w-3.5 h-3.5 rounded-full transition-all duration-300", 
+                    i < pin.length 
+                      ? "bg-primary scale-110 shadow-[0_0_12px_rgba(var(--primary),0.6)]" 
+                      : "bg-muted border border-border/50"
+                  )} 
+               />
+             ))}
+           </div>
+
+           <div className="grid grid-cols-3 gap-4 max-w-[280px] mx-auto">
+             {[1,2,3,4,5,6,7,8,9].map(n => (
+               <button 
+                 key={n} 
+                 onClick={() => handleKeyPress(n)} 
+                 className="h-16 rounded-full bg-background/60 hover:bg-background border border-white/5 text-2xl font-display font-semibold active:scale-95 transition-transform focus-visible:ring-0 outline-none shadow-sm"
+               >
+                 {n}
+               </button>
+             ))}
+             <button 
+               onClick={() => setShowPad(false)} 
+               className="h-16 rounded-full text-muted-foreground font-semibold hover:bg-background/40 active:scale-95 transition-transform outline-none focus-visible:ring-0 uppercase text-sm tracking-wider"
+             >
+               Cancel
+             </button>
+             <button 
+               onClick={() => handleKeyPress(0)} 
+               className="h-16 rounded-full bg-background/60 hover:bg-background border border-white/5 text-2xl font-display font-semibold active:scale-95 transition-transform outline-none focus-visible:ring-0 shadow-sm"
+             >
+               0
+             </button>
+             <button 
+               onClick={() => setPin(p => p.slice(0,-1))} 
+               className="h-16 rounded-full text-muted-foreground flex items-center justify-center hover:bg-background/40 active:scale-95 transition-transform outline-none focus-visible:ring-0"
+             >
+               <Delete className="h-6 w-6"/>
+             </button>
+           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+--- apps/web/src/components/livora/TimeframeToggle.tsx ---
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -4779,10 +5874,9 @@ export function TimeframeToggle({ initialMode = "week", onChange, className }: T
       </button>
     </div>
   );
-}-e 
+}
 
---- File: apps/web/src/components/livora/AppLayout.tsx ---
-
+--- apps/web/src/components/livora/AppLayout.tsx ---
 import { Outlet } from "react-router-dom";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
@@ -4802,10 +5896,9 @@ export function AppLayout() {
       </div>
     </SidebarProvider>
   );
-}-e 
+}
 
---- File: apps/web/src/components/livora/Topbar.tsx ---
-
+--- apps/web/src/components/livora/Topbar.tsx ---
 import { Bell, Plus, House, Plane, X, CheckCheck, Trash2, ShieldAlert, AlertTriangle, Info, Droplets, WifiOff, BatteryWarning } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useState, useEffect, useLayoutEffect, useRef } from "react";
@@ -4815,10 +5908,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { auth } from "@/lib/auth";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
-// Dodano typ 'success' do powiadomień
 export type NotificationType = "alert" | "warning" | "info" | "leak" | "offline" | "battery" | "success";
 
 export interface AppNotification {
@@ -4839,9 +5932,6 @@ const getRelativeTime = (isoString: string) => {
   return `${Math.floor(diff / 86400)}d ago`;
 };
 
-// ==========================================
-// KOMPONENT: PRESENCE TOGGLE
-// ==========================================
 type Mode = "home" | "away";
 
 interface PresenceToggleProps {
@@ -4961,9 +6051,6 @@ function PresenceToggle({ initialMode = "home", onChange, className }: PresenceT
   );
 }
 
-// ==========================================
-// GŁÓWNY KOMPONENT: TOPBAR
-// ==========================================
 export function Topbar() {
   const { socket } = useWebSockets();
   const { data: devices = [] } = useDevices();
@@ -4976,6 +6063,30 @@ export function Topbar() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   
+  const [userName, setUserName] = useState(auth.getCurrentUser()?.username || 'Guest');
+  
+  // USTAWIENIA POBIERANE Z LOCALSTORAGE
+  const [homeName, setHomeName] = useState(localStorage.getItem('livora_home_name') || 'My Smart Home');
+  const [sysSounds, setSysSounds] = useState(localStorage.getItem('livora_sys_sounds') !== 'false');
+  const [alertOffline, setAlertOffline] = useState(localStorage.getItem('livora_alert_offline') !== 'false');
+  const [alertBattery, setAlertBattery] = useState(localStorage.getItem('livora_alert_battery') !== 'false');
+
+  useEffect(() => {
+    const handleAuthChange = () => {
+      setUserName(auth.getCurrentUser()?.username || 'Guest');
+      setHomeName(localStorage.getItem('livora_home_name') || 'My Smart Home');
+      setSysSounds(localStorage.getItem('livora_sys_sounds') !== 'false');
+      setAlertOffline(localStorage.getItem('livora_alert_offline') !== 'false');
+      setAlertBattery(localStorage.getItem('livora_alert_battery') !== 'false');
+    };
+    window.addEventListener('auth_changed', handleAuthChange);
+    window.addEventListener('user_settings_changed', handleAuthChange);
+    return () => {
+      window.removeEventListener('auth_changed', handleAuthChange);
+      window.removeEventListener('user_settings_changed', handleAuthChange);
+    };
+  }, []);
+
   const notifiedStatesRef = useRef<Set<string>>(new Set());
   const hasInitializedStates = useRef(false);
   const [activeAlarms, setActiveAlarms] = useState<Set<string>>(new Set());
@@ -5082,7 +6193,7 @@ export function Topbar() {
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isAlarmActive) {
+    if (isAlarmActive && sysSounds) { // ODCZYTYWANIE USTAWIEŃ DŹWIĘKU
       const playBeep = () => {
         const ctx = audioCtxRef.current;
         if (!ctx) return;
@@ -5109,7 +6220,7 @@ export function Topbar() {
       interval = setInterval(playBeep, 1000); 
     }
     return () => { if (interval) clearInterval(interval); };
-  }, [isAlarmActive]);
+  }, [isAlarmActive, sysSounds]);
 
   useEffect(() => {
     if (!socket) return;
@@ -5172,24 +6283,31 @@ export function Topbar() {
         }
       }
 
+      // ODCZYTYWANIE USTAWIEŃ OFFLINE
       const isOffline = payload.state === 'OFFLINE' || payload.state === 'offline' || payload.availability === 'offline';
       const offlineKey = `${friendlyName}_offline`;
       if (isOffline && !notifiedStatesRef.current.has(offlineKey)) {
         if (ignoredOfflineRef.current.has(friendlyName)) return; 
-        
         notifiedStatesRef.current.add(offlineKey);
-        notifyAndSave("offline", "Device Offline", `${friendlyName} lost connection to the network.`, offlineKey);
+        
+        if (alertOffline) {
+          notifyAndSave("offline", "Device Offline", `${friendlyName} lost connection to the network.`, offlineKey);
+        }
       } else if (!isOffline && (payload.state || payload.availability) && notifiedStatesRef.current.has(offlineKey)) {
         notifiedStatesRef.current.delete(offlineKey);
         toast.dismiss(offlineKey);
       }
 
+      // ODCZYTYWANIE USTAWIEŃ BATERII
       if (payload.battery !== undefined) {
         const bat = Number(payload.battery);
         const batKey = `${friendlyName}_battery`;
         if (bat <= 15 && !notifiedStatesRef.current.has(batKey)) {
           notifiedStatesRef.current.add(batKey);
-          notifyAndSave("battery", "Low Battery", `${friendlyName} battery is at ${bat}%. Replace soon.`, batKey);
+          
+          if (alertBattery) {
+            notifyAndSave("battery", "Low Battery", `${friendlyName} battery is at ${bat}%. Replace soon.`, batKey);
+          }
         } else if (bat > 15 && notifiedStatesRef.current.has(batKey)) {
           notifiedStatesRef.current.delete(batKey);
           toast.dismiss(batKey);
@@ -5213,7 +6331,7 @@ export function Topbar() {
       socket.off('device_joined', handleDeviceJoined);
       socket.off('device_list_updated', handleListUpdate);
     };
-  }, [socket, queryClient]);
+  }, [socket, queryClient, alertBattery, alertOffline]); // Wpięte zależności ustawień
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -5271,9 +6389,10 @@ export function Topbar() {
         <SidebarTrigger className="rounded-xl glass h-11 w-11" />
 
         <div className="hidden md:block flex-1">
-          <h2 className="font-display text-lg font-semibold leading-tight">Hi, Patryk</h2>
+          <h2 className="font-display text-lg font-semibold leading-tight">Hi, {userName}</h2>
           <p className="text-xs text-muted-foreground">
-            {isPairing ? `Pairing active: ${formatTime(timeLeft)}` : "Welcome home."}
+            {/* WSTAWIONA NAZWA DOMU */}
+            {isPairing ? `Pairing active: ${formatTime(timeLeft)}` : `Welcome to ${homeName}.`}
           </p>
         </div>
 
@@ -5316,7 +6435,7 @@ export function Topbar() {
 
           <button 
             onClick={() => setIsNotificationsOpen(true)}
-            className="relative h-11 w-11 rounded-full glass flex items-center justify-center transition-transform active:scale-95"
+            className="relative h-11 w-11 rounded-full glass flex items-center justify-center transition-transform active:scale-95 focus-visible:ring-0 outline-none"
           >
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
@@ -5342,17 +6461,17 @@ export function Topbar() {
               {unreadCount > 0 ? `You have ${unreadCount} unread messages` : "You're all caught up."}
             </p>
           </div>
-          <button onClick={() => setIsNotificationsOpen(false)} className="h-11 w-11 rounded-full glass flex items-center justify-center active:scale-95 transition-transform">
+          <button onClick={() => setIsNotificationsOpen(false)} className="h-11 w-11 rounded-full glass flex items-center justify-center active:scale-95 transition-transform focus-visible:ring-0">
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {notifications.length > 0 && (
           <div className="flex items-center justify-between px-6 py-4 border-b border-border/40">
-            <button onClick={markAllAsRead} disabled={unreadCount === 0} className="text-sm font-medium flex items-center gap-2 text-muted-foreground active:text-foreground transition-colors disabled:opacity-50">
+            <button onClick={markAllAsRead} disabled={unreadCount === 0} className="text-sm font-medium flex items-center gap-2 text-muted-foreground active:text-foreground transition-colors disabled:opacity-50 focus-visible:ring-0">
               <CheckCheck className="h-4 w-4" /> Mark all as read
             </button>
-            <button onClick={clearAllNotifications} className="text-sm font-medium flex items-center gap-2 text-destructive active:text-destructive/80 transition-colors">
+            <button onClick={clearAllNotifications} className="text-sm font-medium flex items-center gap-2 text-destructive active:text-destructive/80 transition-colors focus-visible:ring-0">
               <Trash2 className="h-4 w-4" /> Clear all
             </button>
           </div>
@@ -5381,7 +6500,7 @@ export function Topbar() {
                 <div 
                   key={n.id}
                   onClick={() => markAsRead(n.id)}
-                  className={cn("relative p-4 rounded-2xl transition-colors border", !n.read ? "bg-background/60 border-border/60 shadow-sm" : "bg-transparent border-transparent opacity-75")}
+                  className={cn("relative p-4 rounded-2xl transition-colors border cursor-pointer", !n.read ? "bg-background/60 border-border/60 shadow-sm" : "bg-transparent border-transparent opacity-75")}
                 >
                   {!n.read && <span className="absolute top-5 right-5 h-2 w-2 rounded-full bg-accent" />}
                   <div className="flex gap-4">
@@ -5402,10 +6521,9 @@ export function Topbar() {
       </div>
     </>
   );
-}-e 
+}
 
---- File: apps/web/src/components/ui/collapsible.tsx ---
-
+--- apps/web/src/components/ui/collapsible.tsx ---
 import * as CollapsiblePrimitive from "@radix-ui/react-collapsible";
 
 const Collapsible = CollapsiblePrimitive.Root;
@@ -5415,10 +6533,9 @@ const CollapsibleTrigger = CollapsiblePrimitive.CollapsibleTrigger;
 const CollapsibleContent = CollapsiblePrimitive.CollapsibleContent;
 
 export { Collapsible, CollapsibleTrigger, CollapsibleContent };
--e 
 
---- File: apps/web/src/components/ui/alert.tsx ---
 
+--- apps/web/src/components/ui/alert.tsx ---
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
@@ -5462,10 +6579,9 @@ const AlertDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttrib
 AlertDescription.displayName = "AlertDescription";
 
 export { Alert, AlertTitle, AlertDescription };
--e 
 
---- File: apps/web/src/components/ui/switch.tsx ---
 
+--- apps/web/src/components/ui/switch.tsx ---
 import * as React from "react";
 import * as SwitchPrimitives from "@radix-ui/react-switch";
 
@@ -5493,10 +6609,9 @@ const Switch = React.forwardRef<
 Switch.displayName = SwitchPrimitives.Root.displayName;
 
 export { Switch };
--e 
 
---- File: apps/web/src/components/ui/toast.tsx ---
 
+--- apps/web/src/components/ui/toast.tsx ---
 import * as React from "react";
 import * as ToastPrimitives from "@radix-ui/react-toast";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -5608,10 +6723,9 @@ export {
   ToastClose,
   ToastAction,
 };
--e 
 
---- File: apps/web/src/components/ui/command.tsx ---
 
+--- apps/web/src/components/ui/command.tsx ---
 import * as React from "react";
 import { type DialogProps } from "@radix-ui/react-dialog";
 import { Command as CommandPrimitive } from "cmdk";
@@ -5744,10 +6858,9 @@ export {
   CommandShortcut,
   CommandSeparator,
 };
--e 
 
---- File: apps/web/src/components/ui/pagination.tsx ---
 
+--- apps/web/src/components/ui/pagination.tsx ---
 import * as React from "react";
 import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 
@@ -5829,10 +6942,9 @@ export {
   PaginationNext,
   PaginationPrevious,
 };
--e 
 
---- File: apps/web/src/components/ui/popover.tsx ---
 
+--- apps/web/src/components/ui/popover.tsx ---
 import * as React from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 
@@ -5862,10 +6974,9 @@ const PopoverContent = React.forwardRef<
 PopoverContent.displayName = PopoverPrimitive.Content.displayName;
 
 export { Popover, PopoverTrigger, PopoverContent };
--e 
 
---- File: apps/web/src/components/ui/form.tsx ---
 
+--- apps/web/src/components/ui/form.tsx ---
 import * as React from "react";
 import * as LabelPrimitive from "@radix-ui/react-label";
 import { Slot } from "@radix-ui/react-slot";
@@ -5995,10 +7106,9 @@ const FormMessage = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<
 FormMessage.displayName = "FormMessage";
 
 export { useFormField, Form, FormItem, FormLabel, FormControl, FormDescription, FormMessage, FormField };
--e 
 
---- File: apps/web/src/components/ui/carousel.tsx ---
 
+--- apps/web/src/components/ui/carousel.tsx ---
 import * as React from "react";
 import useEmblaCarousel, { type UseEmblaCarouselType } from "embla-carousel-react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
@@ -6223,10 +7333,9 @@ const CarouselNext = React.forwardRef<HTMLButtonElement, React.ComponentProps<ty
 CarouselNext.displayName = "CarouselNext";
 
 export { type CarouselApi, Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext };
--e 
 
---- File: apps/web/src/components/ui/button.tsx ---
 
+--- apps/web/src/components/ui/button.tsx ---
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -6274,10 +7383,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 Button.displayName = "Button";
 
 export { Button, buttonVariants };
--e 
 
---- File: apps/web/src/components/ui/dialog.tsx ---
 
+--- apps/web/src/components/ui/dialog.tsx ---
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
@@ -6373,10 +7481,9 @@ export {
   DialogTitle,
   DialogDescription,
 };
--e 
 
---- File: apps/web/src/components/ui/card.tsx ---
 
+--- apps/web/src/components/ui/card.tsx ---
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -6420,10 +7527,9 @@ const CardFooter = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
 CardFooter.displayName = "CardFooter";
 
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent };
--e 
 
---- File: apps/web/src/components/ui/menubar.tsx ---
 
+--- apps/web/src/components/ui/menubar.tsx ---
 import * as React from "react";
 import * as MenubarPrimitive from "@radix-ui/react-menubar";
 import { Check, ChevronRight, Circle } from "lucide-react";
@@ -6631,10 +7737,9 @@ export {
   MenubarSub,
   MenubarShortcut,
 };
--e 
 
---- File: apps/web/src/components/ui/radio-group.tsx ---
 
+--- apps/web/src/components/ui/radio-group.tsx ---
 import * as React from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { Circle } from "lucide-react";
@@ -6671,10 +7776,9 @@ const RadioGroupItem = React.forwardRef<
 RadioGroupItem.displayName = RadioGroupPrimitive.Item.displayName;
 
 export { RadioGroup, RadioGroupItem };
--e 
 
---- File: apps/web/src/components/ui/progress.tsx ---
 
+--- apps/web/src/components/ui/progress.tsx ---
 import * as React from "react";
 import * as ProgressPrimitive from "@radix-ui/react-progress";
 
@@ -6698,10 +7802,9 @@ const Progress = React.forwardRef<
 Progress.displayName = ProgressPrimitive.Root.displayName;
 
 export { Progress };
--e 
 
---- File: apps/web/src/components/ui/chart.tsx ---
 
+--- apps/web/src/components/ui/chart.tsx ---
 import * as React from "react";
 import * as RechartsPrimitive from "recharts";
 
@@ -7005,10 +8108,9 @@ function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key:
 }
 
 export { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, ChartStyle };
--e 
 
---- File: apps/web/src/components/ui/avatar.tsx ---
 
+--- apps/web/src/components/ui/avatar.tsx ---
 import * as React from "react";
 import * as AvatarPrimitive from "@radix-ui/react-avatar";
 
@@ -7047,10 +8149,9 @@ const AvatarFallback = React.forwardRef<
 AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName;
 
 export { Avatar, AvatarImage, AvatarFallback };
--e 
 
---- File: apps/web/src/components/ui/label.tsx ---
 
+--- apps/web/src/components/ui/label.tsx ---
 import * as React from "react";
 import * as LabelPrimitive from "@radix-ui/react-label";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -7068,10 +8169,9 @@ const Label = React.forwardRef<
 Label.displayName = LabelPrimitive.Root.displayName;
 
 export { Label };
--e 
 
---- File: apps/web/src/components/ui/drawer.tsx ---
 
+--- apps/web/src/components/ui/drawer.tsx ---
 import * as React from "react";
 import { Drawer as DrawerPrimitive } from "vaul";
 
@@ -7159,10 +8259,9 @@ export {
   DrawerTitle,
   DrawerDescription,
 };
--e 
 
---- File: apps/web/src/components/ui/accordion.tsx ---
 
+--- apps/web/src/components/ui/accordion.tsx ---
 import * as React from "react";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import { ChevronDown } from "lucide-react";
@@ -7215,17 +8314,15 @@ const AccordionContent = React.forwardRef<
 AccordionContent.displayName = AccordionPrimitive.Content.displayName;
 
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent };
--e 
 
---- File: apps/web/src/components/ui/use-toast.ts ---
 
+--- apps/web/src/components/ui/use-toast.ts ---
 import { useToast, toast } from "@/hooks/use-toast";
 
 export { useToast, toast };
--e 
 
---- File: apps/web/src/components/ui/input-otp.tsx ---
 
+--- apps/web/src/components/ui/input-otp.tsx ---
 import * as React from "react";
 import { OTPInput, OTPInputContext } from "input-otp";
 import { Dot } from "lucide-react";
@@ -7287,10 +8384,9 @@ const InputOTPSeparator = React.forwardRef<React.ElementRef<"div">, React.Compon
 InputOTPSeparator.displayName = "InputOTPSeparator";
 
 export { InputOTP, InputOTPGroup, InputOTPSlot, InputOTPSeparator };
--e 
 
---- File: apps/web/src/components/ui/alert-dialog.tsx ---
 
+--- apps/web/src/components/ui/alert-dialog.tsx ---
 import * as React from "react";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 
@@ -7395,10 +8491,9 @@ export {
   AlertDialogAction,
   AlertDialogCancel,
 };
--e 
 
---- File: apps/web/src/components/ui/table.tsx ---
 
+--- apps/web/src/components/ui/table.tsx ---
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -7471,10 +8566,9 @@ const TableCaption = React.forwardRef<HTMLTableCaptionElement, React.HTMLAttribu
 TableCaption.displayName = "TableCaption";
 
 export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption };
--e 
 
---- File: apps/web/src/components/ui/resizable.tsx ---
 
+--- apps/web/src/components/ui/resizable.tsx ---
 import { GripVertical } from "lucide-react";
 import * as ResizablePrimitive from "react-resizable-panels";
 
@@ -7512,10 +8606,9 @@ const ResizableHandle = ({
 );
 
 export { ResizablePanelGroup, ResizablePanel, ResizableHandle };
--e 
 
---- File: apps/web/src/components/ui/toaster.tsx ---
 
+--- apps/web/src/components/ui/toaster.tsx ---
 import { useToast } from "@/hooks/use-toast";
 import { Toast, ToastClose, ToastDescription, ToastProvider, ToastTitle, ToastViewport } from "@/components/ui/toast";
 
@@ -7540,10 +8633,9 @@ export function Toaster() {
     </ToastProvider>
   );
 }
--e 
 
---- File: apps/web/src/components/ui/navigation-menu.tsx ---
 
+--- apps/web/src/components/ui/navigation-menu.tsx ---
 import * as React from "react";
 import * as NavigationMenuPrimitive from "@radix-ui/react-navigation-menu";
 import { cva } from "class-variance-authority";
@@ -7664,10 +8756,9 @@ export {
   NavigationMenuIndicator,
   NavigationMenuViewport,
 };
--e 
 
---- File: apps/web/src/components/ui/sheet.tsx ---
 
+--- apps/web/src/components/ui/sheet.tsx ---
 import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { cva, type VariantProps } from "class-variance-authority";
 import { X } from "lucide-react";
@@ -7775,10 +8866,9 @@ export {
   SheetTitle,
   SheetTrigger,
 };
--e 
 
---- File: apps/web/src/components/ui/toggle.tsx ---
 
+--- apps/web/src/components/ui/toggle.tsx ---
 import * as React from "react";
 import * as TogglePrimitive from "@radix-ui/react-toggle";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -7816,10 +8906,9 @@ const Toggle = React.forwardRef<
 Toggle.displayName = TogglePrimitive.Root.displayName;
 
 export { Toggle, toggleVariants };
--e 
 
---- File: apps/web/src/components/ui/context-menu.tsx ---
 
+--- apps/web/src/components/ui/context-menu.tsx ---
 import * as React from "react";
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { Check, ChevronRight, Circle } from "lucide-react";
@@ -7998,10 +9087,9 @@ export {
   ContextMenuSubTrigger,
   ContextMenuRadioGroup,
 };
--e 
 
---- File: apps/web/src/components/ui/textarea.tsx ---
 
+--- apps/web/src/components/ui/textarea.tsx ---
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -8023,10 +9111,9 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(({ classNa
 Textarea.displayName = "Textarea";
 
 export { Textarea };
--e 
 
---- File: apps/web/src/components/ui/skeleton.tsx ---
 
+--- apps/web/src/components/ui/skeleton.tsx ---
 import { cn } from "@/lib/utils";
 
 function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
@@ -8034,10 +9121,9 @@ function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>)
 }
 
 export { Skeleton };
--e 
 
---- File: apps/web/src/components/ui/breadcrumb.tsx ---
 
+--- apps/web/src/components/ui/breadcrumb.tsx ---
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { ChevronRight, MoreHorizontal } from "lucide-react";
@@ -8128,10 +9214,9 @@ export {
   BreadcrumbSeparator,
   BreadcrumbEllipsis,
 };
--e 
 
---- File: apps/web/src/components/ui/toggle-group.tsx ---
 
+--- apps/web/src/components/ui/toggle-group.tsx ---
 import * as React from "react";
 import * as ToggleGroupPrimitive from "@radix-ui/react-toggle-group";
 import { type VariantProps } from "class-variance-authority";
@@ -8181,10 +9266,9 @@ const ToggleGroupItem = React.forwardRef<
 ToggleGroupItem.displayName = ToggleGroupPrimitive.Item.displayName;
 
 export { ToggleGroup, ToggleGroupItem };
--e 
 
---- File: apps/web/src/components/ui/dropdown-menu.tsx ---
 
+--- apps/web/src/components/ui/dropdown-menu.tsx ---
 import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { Check, ChevronRight, Circle } from "lucide-react";
@@ -8364,10 +9448,9 @@ export {
   DropdownMenuSubTrigger,
   DropdownMenuRadioGroup,
 };
--e 
 
---- File: apps/web/src/components/ui/hover-card.tsx ---
 
+--- apps/web/src/components/ui/hover-card.tsx ---
 import * as React from "react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 
@@ -8395,10 +9478,9 @@ const HoverCardContent = React.forwardRef<
 HoverCardContent.displayName = HoverCardPrimitive.Content.displayName;
 
 export { HoverCard, HoverCardTrigger, HoverCardContent };
--e 
 
---- File: apps/web/src/components/ui/input.tsx ---
 
+--- apps/web/src/components/ui/input.tsx ---
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -8421,10 +9503,9 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
 Input.displayName = "Input";
 
 export { Input };
--e 
 
---- File: apps/web/src/components/ui/sonner.tsx ---
 
+--- apps/web/src/components/ui/sonner.tsx ---
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, toast } from "sonner";
 
@@ -8452,19 +9533,17 @@ const Toaster = ({ ...props }: ToasterProps) => {
 };
 
 export { Toaster, toast };
--e 
 
---- File: apps/web/src/components/ui/aspect-ratio.tsx ---
 
+--- apps/web/src/components/ui/aspect-ratio.tsx ---
 import * as AspectRatioPrimitive from "@radix-ui/react-aspect-ratio";
 
 const AspectRatio = AspectRatioPrimitive.Root;
 
 export { AspectRatio };
--e 
 
---- File: apps/web/src/components/ui/slider.tsx ---
 
+--- apps/web/src/components/ui/slider.tsx ---
 import * as React from "react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 
@@ -8488,10 +9567,9 @@ const Slider = React.forwardRef<
 Slider.displayName = SliderPrimitive.Root.displayName;
 
 export { Slider };
--e 
 
---- File: apps/web/src/components/ui/scroll-area.tsx ---
 
+--- apps/web/src/components/ui/scroll-area.tsx ---
 import * as React from "react";
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 
@@ -8530,10 +9608,9 @@ const ScrollBar = React.forwardRef<
 ScrollBar.displayName = ScrollAreaPrimitive.ScrollAreaScrollbar.displayName;
 
 export { ScrollArea, ScrollBar };
--e 
 
---- File: apps/web/src/components/ui/badge.tsx ---
 
+--- apps/web/src/components/ui/badge.tsx ---
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
@@ -8563,10 +9640,9 @@ function Badge({ className, variant, ...props }: BadgeProps) {
 }
 
 export { Badge, badgeVariants };
--e 
 
---- File: apps/web/src/components/ui/sidebar.tsx ---
 
+--- apps/web/src/components/ui/sidebar.tsx ---
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { VariantProps, cva } from "class-variance-authority";
@@ -9204,10 +10280,9 @@ export {
   SidebarTrigger,
   useSidebar,
 };
--e 
 
---- File: apps/web/src/components/ui/tabs.tsx ---
 
+--- apps/web/src/components/ui/tabs.tsx ---
 import * as React from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 
@@ -9261,10 +10336,9 @@ const TabsContent = React.forwardRef<
 TabsContent.displayName = TabsPrimitive.Content.displayName;
 
 export { Tabs, TabsList, TabsTrigger, TabsContent };
--e 
 
---- File: apps/web/src/components/ui/separator.tsx ---
 
+--- apps/web/src/components/ui/separator.tsx ---
 import * as React from "react";
 import * as SeparatorPrimitive from "@radix-ui/react-separator";
 
@@ -9285,10 +10359,9 @@ const Separator = React.forwardRef<
 Separator.displayName = SeparatorPrimitive.Root.displayName;
 
 export { Separator };
--e 
 
---- File: apps/web/src/components/ui/checkbox.tsx ---
 
+--- apps/web/src/components/ui/checkbox.tsx ---
 import * as React from "react";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import { Check } from "lucide-react";
@@ -9315,10 +10388,9 @@ const Checkbox = React.forwardRef<
 Checkbox.displayName = CheckboxPrimitive.Root.displayName;
 
 export { Checkbox };
--e 
 
---- File: apps/web/src/components/ui/tooltip.tsx ---
 
+--- apps/web/src/components/ui/tooltip.tsx ---
 import * as React from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 
@@ -9347,10 +10419,9 @@ const TooltipContent = React.forwardRef<
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
--e 
 
---- File: apps/web/src/components/ui/select.tsx ---
 
+--- apps/web/src/components/ui/select.tsx ---
 import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
@@ -9494,10 +10565,9 @@ export {
   SelectScrollUpButton,
   SelectScrollDownButton,
 };
--e 
 
---- File: apps/web/src/components/ui/calendar.tsx ---
 
+--- apps/web/src/components/ui/calendar.tsx ---
 import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { DayPicker } from "react-day-picker";
@@ -9552,19 +10622,69 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }: C
 Calendar.displayName = "Calendar";
 
 export { Calendar };
--e 
 
---- File: apps/web/src/main.tsx ---
 
+--- apps/web/src/main.tsx ---
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 
 createRoot(document.getElementById("root")!).render(<App />);
--e 
 
---- File: apps/web/vite.config.ts ---
 
+--- apps/web/postcss.config.js ---
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+
+
+--- apps/web/tsconfig.node.json ---
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["vite.config.ts"]
+}
+
+
+--- apps/web/tsconfig.json ---
+{
+  "files": [],
+  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }],
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "noImplicitAny": false,
+    "noUnusedParameters": false,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "noUnusedLocals": false,
+    "strictNullChecks": false
+  }
+}
+
+
+--- apps/web/vite.config.ts ---
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -9587,16 +10707,52 @@ export default defineConfig(({ mode }) => ({
     dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
   },
 }));
--e 
 
---- File: apps/backend/src/api.ts ---
 
+--- apps/backend/package.json ---
+{
+  "name": "@smarthome/backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "ts-node src/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mqtt": "^5.15.1",
+    "pg": "^8.20.0",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.6.0",
+    "@types/pg": "^8.20.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
+
+
+--- apps/backend/src/api.ts ---
 import express from 'express';
 import cors from 'cors';
 import pool from './db';
 import * as mqtt from 'mqtt';
 import http from 'http';
 import { Server } from 'socket.io';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 
 const app = express();
 const mqttClient = mqtt.connect('mqtt://localhost:1883');
@@ -9626,14 +10782,25 @@ export const emitDevicesUpdated = () => {
     io.emit('device_list_updated');
 };
 
-// NOWA FUNKCJA: Emitowanie sygnału o dołączeniu nowego urządzenia
 export const emitDeviceJoined = (friendlyName: string) => {
     io.emit('device_joined', { friendlyName });
 };
 
-// ==========================================
-// SYSTEM (PRESENCE MODE DLA AUTOMATYZACJI)
-// ==========================================
+const JWT_SECRET = process.env.JWT_SECRET || 'tajny-klucz';
+
+export const authenticateToken = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    
+    if (!token) return res.status(401).json({ error: 'Access denied' });
+    
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ error: 'Invalid or expired token' });
+        (req as any).user = user;
+        next();
+    });
+};
+
 export let currentPresenceMode = 'home';
 export const automationNotifier = { onUpdate: () => {} };
 
@@ -9643,12 +10810,10 @@ app.get('/api/presence', (req, res) => {
 
 app.post('/api/presence', (req, res) => {
     currentPresenceMode = req.body.mode || 'home';
+    io.emit('presence_update', { mode: currentPresenceMode }); // Zmusza tablet do zablokowania się
     res.json({ mode: currentPresenceMode });
 });
 
-// ==========================================
-// ENERGY STATS (Zastosowanie LAG do likwidacji przerw nocnych)
-// ==========================================
 app.get('/api/energy/stats', async (req, res) => {
     try {
         const todayResult = await pool.query(`
@@ -9724,9 +10889,6 @@ app.get('/api/energy/stats', async (req, res) => {
     }
 });
 
-// ==========================================
-// HISTORYCZNE DANE DLA WYKRESU SŁUPKOWEGO
-// ==========================================
 app.get('/api/energy/history/:timeframe', async (req, res) => {
     const { timeframe } = req.params;
     let query = '';
@@ -9824,9 +10986,6 @@ app.get('/api/energy/history/:timeframe', async (req, res) => {
     }
 });
 
-// ==========================================
-// POKOJE (ROOMS)
-// ==========================================
 app.get('/api/rooms', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM rooms ORDER BY id ASC');
@@ -9866,9 +11025,6 @@ app.delete('/api/rooms/:id', async (req, res) => {
     }
 });
 
-// ==========================================
-// URZĄDZENIA (DEVICES)
-// ==========================================
 app.get('/api/devices', async (req, res) => {
     try {
         const result = await pool.query(`
@@ -9906,9 +11062,6 @@ app.put('/api/devices/:friendly_name/room', async (req, res) => {
     }
 });
 
-// ==========================================
-// MOST ZIGBEE (BRIDGE & STEROWANIE)
-// ==========================================
 app.post('/api/bridge/permit_join', (req, res) => {
     const { permit } = req.body; 
     
@@ -9938,8 +11091,6 @@ app.post('/api/devices/:friendly_name/set', (req, res) => {
             console.error(`Failed to publish to ${friendly_name}:`, err);
             return res.status(500).json({ error: 'Comunication Error' });
         }
-
-        console.log(`Command sent to [${friendly_name}]:`, payload);
         res.json({ message: 'Successfully sent command', topic, payload });
     });
 });
@@ -9951,27 +11102,18 @@ app.delete('/api/devices/:friendly_name', async (req, res) => {
     const payload = JSON.stringify({ id: friendly_name, force: true });
 
     mqttClient.publish(topic, payload, async (err) => {
-        if (err) {
-            console.error(`Błąd MQTT podczas usuwania ${friendly_name}:`, err);
-            return res.status(500).json({ error: 'Błąd komunikacji MQTT' });
-        }
+        if (err) return res.status(500).json({ error: 'Błąd komunikacji MQTT' });
 
         try {
             const devResult = await pool.query('SELECT id FROM devices WHERE friendly_name = $1', [friendly_name]);
-            
             if (devResult.rows.length > 0) {
                 const deviceId = devResult.rows[0].id;
                 await pool.query('DELETE FROM telemetry WHERE device_id = $1', [deviceId]);
                 await pool.query('DELETE FROM devices WHERE id = $1', [deviceId]);
             }
-
-            console.log(`Device [${friendly_name}] deleted.`);
-            
             emitDevicesUpdated();
-            
             res.json({ message: 'Device deleted' });
         } catch (dbError) {
-            console.error('Database error during deleting:', dbError);
             res.status(500).json({ error: 'Database error' });
         }
     });
@@ -9986,25 +11128,14 @@ app.put('/api/devices/:friendly_name/rename', (req, res) => {
     }
 
     const topic = 'zigbee2mqtt/bridge/request/device/rename';
-    const payload = JSON.stringify({ 
-        from: friendly_name, 
-        to: new_name 
-    });
+    const payload = JSON.stringify({ from: friendly_name, to: new_name });
 
     mqttClient.publish(topic, payload, (err) => {
-        if (err) {
-            console.error(`Error while changing device name from ${friendly_name} to ${new_name}:`, err);
-            return res.status(500).json({ error: 'Communication error' });
-        }
-        
-        console.log(`Changing device name: [${friendly_name}] -> [${new_name}]`);
+        if (err) return res.status(500).json({ error: 'Communication error' });
         res.json({ message: 'Changing device name' });
     });
 });
 
-// ==========================================
-// SCENY (SCENES)
-// ==========================================
 export const triggerSceneLocal = async (id: number) => {
     try {
         const result = await pool.query('SELECT actions FROM scenes WHERE id = $1', [id]);
@@ -10030,7 +11161,6 @@ app.get('/api/scenes', async (req, res) => {
         const result = await pool.query('SELECT * FROM scenes ORDER BY id ASC');
         res.json(result.rows);
     } catch (error) {
-        console.error('API Error (Get Scenes):', error);
         res.status(500).json({ error: 'Database error' });
     }
 });
@@ -10056,9 +11186,7 @@ app.put('/api/scenes/:id', async (req, res) => {
             'UPDATE scenes SET name = $1, icon = $2, color = $3, actions = $4 WHERE id = $5 RETURNING *',
             [name, icon, color, JSON.stringify(actions || []), id]
         );
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Scene not found' });
-        }
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Scene not found' });
         res.json(result.rows[0]);
     } catch (error) {
         res.status(500).json({ error: 'Database error' });
@@ -10081,9 +11209,6 @@ app.post('/api/scenes/:id/trigger', async (req, res) => {
     res.json({ message: 'Scene triggered successfully' });
 });
 
-// ==========================================
-// AUTOMATYZACJE (AUTOMATIONS CRUD)
-// ==========================================
 app.get('/api/automations', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM automations ORDER BY id ASC');
@@ -10100,7 +11225,7 @@ app.post('/api/automations', async (req, res) => {
             'INSERT INTO automations (name, is_enabled, trigger_type, trigger_config, condition_config, action_config) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
             [name, is_enabled ?? true, trigger_type, JSON.stringify(trigger_config), JSON.stringify(condition_config), JSON.stringify(action_config)]
         );
-        automationNotifier.onUpdate(); // Sygnał dla silnika pamięci
+        automationNotifier.onUpdate(); 
         res.json(result.rows[0]);
     } catch (error) {
         res.status(500).json({ error: 'Database error' });
@@ -10133,15 +11258,178 @@ app.delete('/api/automations/:id', async (req, res) => {
     }
 });
 
+// ==========================================
+// ZARZĄDZANIE KONTAMI I KIOSK LOGIN
+// ==========================================
+
+app.post('/api/auth/login', async (req, res) => {
+    const { username, password } = req.body;
+    try {
+        const result = await pool.query('SELECT * FROM users WHERE username ILIKE $1', [username]);
+        if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+        
+        const user = result.rows[0];
+        const validPassword = await bcrypt.compare(password, user.password_hash);
+        
+        if (!validPassword) return res.status(401).json({ error: 'Invalid credentials' });
+        
+        const token = jwt.sign({ id: user.id, username: user.username, role: user.role, homeId: user.home_id }, JWT_SECRET, { expiresIn: '30d' });
+        
+        res.json({
+            token,
+            user: { id: user.id, username: user.username, homeId: user.home_id, avatar: user.avatar, role: user.role }
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/auth/register', async (req, res) => {
+    const { username, password } = req.body;
+    try {
+        const hash = await bcrypt.hash(password, 10);
+        const result = await pool.query(
+            'INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id, username, home_id, avatar, role',
+            [username, hash, 'member']
+        );
+        const user = result.rows[0];
+        const token = jwt.sign({ id: user.id, username: user.username, role: user.role, homeId: user.home_id }, JWT_SECRET, { expiresIn: '30d' });
+        
+        res.json({ token, user: { id: user.id, username: user.username, homeId: user.home_id, avatar: user.avatar, role: user.role } });
+    } catch (error: any) {
+        if (error.code === '23505') return res.status(400).json({ error: 'Username already exists' });
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/auth/kiosk-login', async (req, res) => {
+    const { pin } = req.body;
+    try {
+        const result = await pool.query("SELECT * FROM users WHERE role = 'owner' LIMIT 1");
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Owner account not found' });
+        
+        const user = result.rows[0];
+        const validPassword = await bcrypt.compare(pin, user.password_hash);
+        
+        if (!validPassword) return res.status(401).json({ error: 'Invalid PIN' });
+        
+        const token = jwt.sign({ id: user.id, username: user.username, role: user.role, homeId: user.home_id }, JWT_SECRET, { expiresIn: '30d' });
+        res.json({ token, user: { id: user.id, username: user.username, homeId: user.home_id, avatar: user.avatar, role: user.role } });
+    } catch (error) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/auth/verify-pin', authenticateToken, async (req, res) => {
+    const { pin } = req.body;
+    const userId = ((req as any).user).id;
+    try {
+        const result = await pool.query('SELECT password_hash FROM users WHERE id = $1', [userId]);
+        const valid = await bcrypt.compare(pin, result.rows[0].password_hash);
+        if (valid) res.json({ success: true });
+        else res.status(401).json({ error: 'Invalid PIN' });
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+    try {
+        const userId = ((req as any).user).id;
+        const result = await pool.query('SELECT id, username, home_id as "homeId", avatar, role FROM users WHERE id = $1', [userId]);
+        if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+        res.json(result.rows[0]);
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.put('/api/auth/profile', authenticateToken, async (req, res) => {
+    const { username, avatarUrl } = req.body;
+    const userId = ((req as any).user).id;
+    try {
+        const result = await pool.query(
+            'UPDATE users SET username = $1, avatar = $2 WHERE id = $3 RETURNING id, username, home_id as "homeId", avatar, role',
+            [username, avatarUrl, userId]
+        );
+        res.json(result.rows[0]);
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.put('/api/auth/password', authenticateToken, async (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+    const userId = ((req as any).user).id;
+    try {
+        const result = await pool.query('SELECT password_hash FROM users WHERE id = $1', [userId]);
+        if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+        
+        const valid = await bcrypt.compare(oldPassword, result.rows[0].password_hash);
+        if (!valid) return res.status(401).json({ error: 'Invalid current PIN' });
+        
+        const newHash = await bcrypt.hash(newPassword, 10);
+        await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, userId]);
+        res.json({ message: 'Password updated' });
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/api/homes/:homeId/users', authenticateToken, async (req, res) => {
+    const { homeId } = req.params;
+    try {
+        const result = await pool.query('SELECT id, username, home_id as "homeId", avatar, role FROM users WHERE home_id = $1', [homeId]);
+        res.json(result.rows);
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/homes/:homeId/invite', authenticateToken, async (req, res) => {
+    const { homeId } = req.params;
+    const { targetUsername } = req.body;
+    try {
+        const result = await pool.query(
+            'UPDATE users SET home_id = $1, role = $2 WHERE username ILIKE $3 RETURNING id',
+            [homeId, 'member', targetUsername]
+        );
+        if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+        res.json({ message: 'User invited' });
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.put('/api/homes/users/:userId/role', authenticateToken, async (req, res) => {
+    const { userId } = req.params;
+    const { role } = req.body;
+    try {
+        await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
+        res.json({ message: 'Role updated' });
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.delete('/api/homes/users/:userId', authenticateToken, async (req, res) => {
+    const { userId } = req.params;
+    try {
+        await pool.query('UPDATE users SET home_id = NULL, role = \'member\' WHERE id = $1', [userId]);
+        res.json({ message: 'User removed' });
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 export const startAPI = () => {
     const PORT = 3000;
     server.listen(PORT, '0.0.0.0', () => {
         console.log(`API server & WebSocket running on port ${PORT}`);
     });
-};-e 
+};
 
---- File: apps/backend/src/index.ts ---
-
+--- apps/backend/src/index.ts ---
 import * as mqtt from 'mqtt';
 import pool, { initDB } from './db';
 import { startAPI, emitDeviceState, emitDevicesUpdated, emitDeviceJoined, automationNotifier, triggerSceneLocal, currentPresenceMode } from './api';
@@ -10373,11 +11661,11 @@ const start = async () => {
     });
 };
 
-start();-e 
+start();
 
---- File: apps/backend/src/db.ts ---
-
+--- apps/backend/src/db.ts ---
 import { Pool } from 'pg';
+import bcrypt from 'bcryptjs';
 
 const pool = new Pool({
     user: 'smarthome_user',
@@ -10464,7 +11752,6 @@ export const initDB = async () => {
             `);
         }
 
-        // TABELA AUTOMATYZACJI
         await client.query(`
             CREATE TABLE IF NOT EXISTS automations (
                 id SERIAL PRIMARY KEY,
@@ -10478,6 +11765,29 @@ export const initDB = async () => {
             );
         `);
 
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(255) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                home_id VARCHAR(255),
+                avatar VARCHAR(1024),
+                role VARCHAR(50) DEFAULT 'owner',
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        const userCount = await client.query('SELECT COUNT(*) FROM users');
+        if (parseInt(userCount.rows[0].count) === 0) {
+            console.log('Creating default owner account...');
+            // Zmieniono PIN na 123456
+            const hash = await bcrypt.hash('123456', 10);
+            await client.query(`
+                INSERT INTO users (username, password_hash, home_id, role)
+                VALUES ('Owner', $1, 'home_main', 'owner')
+            `, [hash]);
+        }
+
     } catch (error) {
         console.error('Initialization error:', error);
     } finally {
@@ -10486,3 +11796,18 @@ export const initDB = async () => {
 };
 
 export default pool;
+
+--- apps/backend/tsconfig.json ---
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "CommonJS",
+        "rootDir": "./src",
+        "outDir": "./dist",
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true
+    },
+    "include": ["src/**/*"]
+}

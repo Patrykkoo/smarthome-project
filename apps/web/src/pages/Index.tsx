@@ -82,7 +82,7 @@ const generateSparkline = (data: number[], width: number, height: number) => {
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [activeScene, setActiveScene] = useState("Natural");
+  const [activeScene, setActiveScene] = useState<string | null>(null);
   const [activeRoomName, setActiveRoomName] = useState("All");
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -91,6 +91,15 @@ const Dashboard = () => {
     queryKey: ['rooms'],
     queryFn: async () => {
       const res = await axios.get(`${API_URL}/rooms`);
+      return res.data;
+    }
+  });
+
+  // POBIERANIE SCEN Z BAZY DANYCH
+  const { data: scenes = [] } = useQuery({
+    queryKey: ['scenes'],
+    queryFn: async () => {
+      const res = await axios.get(`${API_URL}/scenes`);
       return res.data;
     }
   });
@@ -223,6 +232,19 @@ const Dashboard = () => {
     }, 250);
   };
 
+  // OBSŁUGA WYWOŁYWANIA SCEN Z BAZY DANYCH
+  const handleSceneTrigger = async (sceneName: string) => {
+    setActiveScene(sceneName);
+    const scene = scenes.find((s: any) => s.name === sceneName);
+    if (scene) {
+      try {
+        await axios.post(`${API_URL}/scenes/${scene.id}/trigger`);
+      } catch (error) {
+        toast.error("Failed to trigger scene");
+      }
+    }
+  };
+
   const formatRemaining = (sec: number) => {
     if (sec <= 0) return "Disabled";
     const h = Math.floor(sec / 3600);
@@ -235,7 +257,7 @@ const Dashboard = () => {
   const roomNames = ["All", ...rooms.map((r: any) => r.name)];
   if (devices.some((d: any) => !d.room_id)) roomNames.push("Unassigned");
 
-  const sceneNames = ["Natural", "Relax", "Party", "Goodnight"];
+  const sceneNames = scenes.map((s: any) => s.name);
 
   const filteredDevices = activeRoomName === "All" 
     ? devices 
@@ -419,7 +441,11 @@ const Dashboard = () => {
         <div className="flex items-center justify-between gap-4 w-full">
           <h2 className="font-display text-xl font-semibold shrink-0">Quick scenes</h2>
           <div className="flex-1 flex justify-end">
-             <RoomFilter rooms={sceneNames} active={activeScene} onChange={setActiveScene} />
+            {scenes.length > 0 ? (
+              <RoomFilter rooms={sceneNames} active={activeScene || ""} onChange={handleSceneTrigger} />
+            ) : (
+              <p className="text-sm text-muted-foreground px-2">No scenes yet</p>
+            )}
           </div>
         </div>
       </div>

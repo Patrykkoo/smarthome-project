@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import bcrypt from 'bcryptjs';
 
 const pool = new Pool({
     user: 'smarthome_user',
@@ -85,7 +86,6 @@ export const initDB = async () => {
             `);
         }
 
-        // TABELA AUTOMATYZACJI
         await client.query(`
             CREATE TABLE IF NOT EXISTS automations (
                 id SERIAL PRIMARY KEY,
@@ -98,6 +98,29 @@ export const initDB = async () => {
                 created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             );
         `);
+
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(255) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                home_id VARCHAR(255),
+                avatar VARCHAR(1024),
+                role VARCHAR(50) DEFAULT 'owner',
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        const userCount = await client.query('SELECT COUNT(*) FROM users');
+        if (parseInt(userCount.rows[0].count) === 0) {
+            console.log('Creating default owner account...');
+            // Zmieniono PIN na 123456
+            const hash = await bcrypt.hash('123456', 10);
+            await client.query(`
+                INSERT INTO users (username, password_hash, home_id, role)
+                VALUES ('Owner', $1, 'home_main', 'owner')
+            `, [hash]);
+        }
 
     } catch (error) {
         console.error('Initialization error:', error);

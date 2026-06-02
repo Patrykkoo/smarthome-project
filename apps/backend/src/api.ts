@@ -4,6 +4,8 @@ import pool from './db';
 import * as mqtt from 'mqtt';
 import http from 'http';
 import { Server } from 'socket.io';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 
 const app = express();
 const mqttClient = mqtt.connect('mqtt://localhost:1883');
@@ -33,14 +35,25 @@ export const emitDevicesUpdated = () => {
     io.emit('device_list_updated');
 };
 
-// NOWA FUNKCJA: Emitowanie sygnału o dołączeniu nowego urządzenia
 export const emitDeviceJoined = (friendlyName: string) => {
     io.emit('device_joined', { friendlyName });
 };
 
-// ==========================================
-// SYSTEM (PRESENCE MODE DLA AUTOMATYZACJI)
-// ==========================================
+const JWT_SECRET = process.env.JWT_SECRET || 'tajny-klucz';
+
+export const authenticateToken = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    
+    if (!token) return res.status(401).json({ error: 'Access denied' });
+    
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ error: 'Invalid or expired token' });
+        (req as any).user = user;
+        next();
+    });
+};
+
 export let currentPresenceMode = 'home';
 export const automationNotifier = { onUpdate: () => {} };
 
@@ -50,12 +63,10 @@ app.get('/api/presence', (req, res) => {
 
 app.post('/api/presence', (req, res) => {
     currentPresenceMode = req.body.mode || 'home';
+    io.emit('presence_update', { mode: currentPresenceMode }); // Zmusza tablet do zablokowania się
     res.json({ mode: currentPresenceMode });
 });
 
-// ==========================================
-// ENERGY STATS (Zastosowanie LAG do likwidacji przerw nocnych)
-// ==========================================
 app.get('/api/energy/stats', async (req, res) => {
     try {
         const todayResult = await pool.query(`
@@ -131,9 +142,6 @@ app.get('/api/energy/stats', async (req, res) => {
     }
 });
 
-// ==========================================
-// HISTORYCZNE DANE DLA WYKRESU SŁUPKOWEGO
-// ==========================================
 app.get('/api/energy/history/:timeframe', async (req, res) => {
     const { timeframe } = req.params;
     let query = '';
@@ -231,9 +239,6 @@ app.get('/api/energy/history/:timeframe', async (req, res) => {
     }
 });
 
-// ==========================================
-// POKOJE (ROOMS)
-// ==========================================
 app.get('/api/rooms', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM rooms ORDER BY id ASC');
@@ -273,9 +278,6 @@ app.delete('/api/rooms/:id', async (req, res) => {
     }
 });
 
-// ==========================================
-// URZĄDZENIA (DEVICES)
-// ==========================================
 app.get('/api/devices', async (req, res) => {
     try {
         const result = await pool.query(`
@@ -313,9 +315,6 @@ app.put('/api/devices/:friendly_name/room', async (req, res) => {
     }
 });
 
-// ==========================================
-// MOST ZIGBEE (BRIDGE & STEROWANIE)
-// ==========================================
 app.post('/api/bridge/permit_join', (req, res) => {
     const { permit } = req.body; 
     
@@ -345,8 +344,6 @@ app.post('/api/devices/:friendly_name/set', (req, res) => {
             console.error(`Failed to publish to ${friendly_name}:`, err);
             return res.status(500).json({ error: 'Comunication Error' });
         }
-
-        console.log(`Command sent to [${friendly_name}]:`, payload);
         res.json({ message: 'Successfully sent command', topic, payload });
     });
 });
@@ -358,27 +355,18 @@ app.delete('/api/devices/:friendly_name', async (req, res) => {
     const payload = JSON.stringify({ id: friendly_name, force: true });
 
     mqttClient.publish(topic, payload, async (err) => {
-        if (err) {
-            console.error(`Błąd MQTT podczas usuwania ${friendly_name}:`, err);
-            return res.status(500).json({ error: 'Błąd komunikacji MQTT' });
-        }
+        if (err) return res.status(500).json({ error: 'Błąd komunikacji MQTT' });
 
         try {
             const devResult = await pool.query('SELECT id FROM devices WHERE friendly_name = $1', [friendly_name]);
-            
             if (devResult.rows.length > 0) {
                 const deviceId = devResult.rows[0].id;
                 await pool.query('DELETE FROM telemetry WHERE device_id = $1', [deviceId]);
                 await pool.query('DELETE FROM devices WHERE id = $1', [deviceId]);
             }
-
-            console.log(`Device [${friendly_name}] deleted.`);
-            
             emitDevicesUpdated();
-            
             res.json({ message: 'Device deleted' });
         } catch (dbError) {
-            console.error('Database error during deleting:', dbError);
             res.status(500).json({ error: 'Database error' });
         }
     });
@@ -393,25 +381,14 @@ app.put('/api/devices/:friendly_name/rename', (req, res) => {
     }
 
     const topic = 'zigbee2mqtt/bridge/request/device/rename';
-    const payload = JSON.stringify({ 
-        from: friendly_name, 
-        to: new_name 
-    });
+    const payload = JSON.stringify({ from: friendly_name, to: new_name });
 
     mqttClient.publish(topic, payload, (err) => {
-        if (err) {
-            console.error(`Error while changing device name from ${friendly_name} to ${new_name}:`, err);
-            return res.status(500).json({ error: 'Communication error' });
-        }
-        
-        console.log(`Changing device name: [${friendly_name}] -> [${new_name}]`);
+        if (err) return res.status(500).json({ error: 'Communication error' });
         res.json({ message: 'Changing device name' });
     });
 });
 
-// ==========================================
-// SCENY (SCENES)
-// ==========================================
 export const triggerSceneLocal = async (id: number) => {
     try {
         const result = await pool.query('SELECT actions FROM scenes WHERE id = $1', [id]);
@@ -437,7 +414,6 @@ app.get('/api/scenes', async (req, res) => {
         const result = await pool.query('SELECT * FROM scenes ORDER BY id ASC');
         res.json(result.rows);
     } catch (error) {
-        console.error('API Error (Get Scenes):', error);
         res.status(500).json({ error: 'Database error' });
     }
 });
@@ -463,9 +439,7 @@ app.put('/api/scenes/:id', async (req, res) => {
             'UPDATE scenes SET name = $1, icon = $2, color = $3, actions = $4 WHERE id = $5 RETURNING *',
             [name, icon, color, JSON.stringify(actions || []), id]
         );
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Scene not found' });
-        }
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Scene not found' });
         res.json(result.rows[0]);
     } catch (error) {
         res.status(500).json({ error: 'Database error' });
@@ -488,9 +462,6 @@ app.post('/api/scenes/:id/trigger', async (req, res) => {
     res.json({ message: 'Scene triggered successfully' });
 });
 
-// ==========================================
-// AUTOMATYZACJE (AUTOMATIONS CRUD)
-// ==========================================
 app.get('/api/automations', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM automations ORDER BY id ASC');
@@ -507,7 +478,7 @@ app.post('/api/automations', async (req, res) => {
             'INSERT INTO automations (name, is_enabled, trigger_type, trigger_config, condition_config, action_config) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
             [name, is_enabled ?? true, trigger_type, JSON.stringify(trigger_config), JSON.stringify(condition_config), JSON.stringify(action_config)]
         );
-        automationNotifier.onUpdate(); // Sygnał dla silnika pamięci
+        automationNotifier.onUpdate(); 
         res.json(result.rows[0]);
     } catch (error) {
         res.status(500).json({ error: 'Database error' });
@@ -537,6 +508,170 @@ app.delete('/api/automations/:id', async (req, res) => {
         res.json({ message: 'Automation deleted' });
     } catch (error) {
         res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// ==========================================
+// ZARZĄDZANIE KONTAMI I KIOSK LOGIN
+// ==========================================
+
+app.post('/api/auth/login', async (req, res) => {
+    const { username, password } = req.body;
+    try {
+        const result = await pool.query('SELECT * FROM users WHERE username ILIKE $1', [username]);
+        if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+        
+        const user = result.rows[0];
+        const validPassword = await bcrypt.compare(password, user.password_hash);
+        
+        if (!validPassword) return res.status(401).json({ error: 'Invalid credentials' });
+        
+        const token = jwt.sign({ id: user.id, username: user.username, role: user.role, homeId: user.home_id }, JWT_SECRET, { expiresIn: '30d' });
+        
+        res.json({
+            token,
+            user: { id: user.id, username: user.username, homeId: user.home_id, avatar: user.avatar, role: user.role }
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/auth/register', async (req, res) => {
+    const { username, password } = req.body;
+    try {
+        const hash = await bcrypt.hash(password, 10);
+        const result = await pool.query(
+            'INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id, username, home_id, avatar, role',
+            [username, hash, 'member']
+        );
+        const user = result.rows[0];
+        const token = jwt.sign({ id: user.id, username: user.username, role: user.role, homeId: user.home_id }, JWT_SECRET, { expiresIn: '30d' });
+        
+        res.json({ token, user: { id: user.id, username: user.username, homeId: user.home_id, avatar: user.avatar, role: user.role } });
+    } catch (error: any) {
+        if (error.code === '23505') return res.status(400).json({ error: 'Username already exists' });
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/auth/kiosk-login', async (req, res) => {
+    const { pin } = req.body;
+    try {
+        const result = await pool.query("SELECT * FROM users WHERE role = 'owner' LIMIT 1");
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Owner account not found' });
+        
+        const user = result.rows[0];
+        const validPassword = await bcrypt.compare(pin, user.password_hash);
+        
+        if (!validPassword) return res.status(401).json({ error: 'Invalid PIN' });
+        
+        const token = jwt.sign({ id: user.id, username: user.username, role: user.role, homeId: user.home_id }, JWT_SECRET, { expiresIn: '30d' });
+        res.json({ token, user: { id: user.id, username: user.username, homeId: user.home_id, avatar: user.avatar, role: user.role } });
+    } catch (error) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/auth/verify-pin', authenticateToken, async (req, res) => {
+    const { pin } = req.body;
+    const userId = ((req as any).user).id;
+    try {
+        const result = await pool.query('SELECT password_hash FROM users WHERE id = $1', [userId]);
+        const valid = await bcrypt.compare(pin, result.rows[0].password_hash);
+        if (valid) res.json({ success: true });
+        else res.status(401).json({ error: 'Invalid PIN' });
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+    try {
+        const userId = ((req as any).user).id;
+        const result = await pool.query('SELECT id, username, home_id as "homeId", avatar, role FROM users WHERE id = $1', [userId]);
+        if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+        res.json(result.rows[0]);
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.put('/api/auth/profile', authenticateToken, async (req, res) => {
+    const { username, avatarUrl } = req.body;
+    const userId = ((req as any).user).id;
+    try {
+        const result = await pool.query(
+            'UPDATE users SET username = $1, avatar = $2 WHERE id = $3 RETURNING id, username, home_id as "homeId", avatar, role',
+            [username, avatarUrl, userId]
+        );
+        res.json(result.rows[0]);
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.put('/api/auth/password', authenticateToken, async (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+    const userId = ((req as any).user).id;
+    try {
+        const result = await pool.query('SELECT password_hash FROM users WHERE id = $1', [userId]);
+        if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+        
+        const valid = await bcrypt.compare(oldPassword, result.rows[0].password_hash);
+        if (!valid) return res.status(401).json({ error: 'Invalid current PIN' });
+        
+        const newHash = await bcrypt.hash(newPassword, 10);
+        await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, userId]);
+        res.json({ message: 'Password updated' });
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/api/homes/:homeId/users', authenticateToken, async (req, res) => {
+    const { homeId } = req.params;
+    try {
+        const result = await pool.query('SELECT id, username, home_id as "homeId", avatar, role FROM users WHERE home_id = $1', [homeId]);
+        res.json(result.rows);
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/homes/:homeId/invite', authenticateToken, async (req, res) => {
+    const { homeId } = req.params;
+    const { targetUsername } = req.body;
+    try {
+        const result = await pool.query(
+            'UPDATE users SET home_id = $1, role = $2 WHERE username ILIKE $3 RETURNING id',
+            [homeId, 'member', targetUsername]
+        );
+        if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+        res.json({ message: 'User invited' });
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.put('/api/homes/users/:userId/role', authenticateToken, async (req, res) => {
+    const { userId } = req.params;
+    const { role } = req.body;
+    try {
+        await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
+        res.json({ message: 'Role updated' });
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.delete('/api/homes/users/:userId', authenticateToken, async (req, res) => {
+    const { userId } = req.params;
+    try {
+        await pool.query('UPDATE users SET home_id = NULL, role = \'member\' WHERE id = $1', [userId]);
+        res.json({ message: 'User removed' });
+    } catch (e) {
+        res.status(500).json({ error: 'Server error' });
     }
 });
 

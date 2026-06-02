@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { 
   Sun, Sparkles, PartyPopper, Moon, Film, Coffee, Plus, Clock, Pencil, Trash2, 
   Lightbulb, Plug, BedDouble, Music, Gamepad2, Zap, Settings2, Trash, Check,
-  Thermometer, Palette, Lock, Unlock, ShieldAlert, Activity, PlaySquare
+  Thermometer, Palette, Lock, Unlock, ShieldAlert, Activity, PlaySquare, Minus, Cpu
 } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
 import { Switch } from "@/components/ui/switch";
@@ -58,7 +58,7 @@ const Scenes = () => {
     name: "", icon: "Sparkles", color: AVAILABLE_COLORS[0], actions: []
   });
 
-  // NOWE STANY AUTOMATYZACJI
+  // STANY AUTOMATYZACJI
   const [isAutoModalOpen, setIsAutoModalOpen] = useState(false);
   const [autoToDelete, setAutoToDelete] = useState<number | null>(null);
   const [autoForm, setAutoForm] = useState<any>({ 
@@ -78,7 +78,6 @@ const Scenes = () => {
     }
   });
 
-  // QUERY AUTOMATYZACJI Z BAZY
   const { data: automations = [], isLoading: isLoadingAuto } = useQuery({
       queryKey: ['automations'],
       queryFn: async () => {
@@ -265,7 +264,7 @@ const Scenes = () => {
           <h1 className="font-display text-3xl font-semibold">Scenes & Automations</h1>
           <p className="text-sm text-muted-foreground mt-1">One tap to set the mood. Rules to do it for you.</p>
         </div>
-        <Button onClick={() => openEditor()} className="rounded-full px-5 py-2.5 shadow-md hover:shadow-lg transition-all h-11 focus-visible:ring-0">
+        <Button onClick={() => openEditor()} className="rounded-full px-5 py-2.5 shadow-md transition-all h-11 focus-visible:ring-0">
           <Plus className="h-4 w-4 mr-2" /> Create scene
         </Button>
       </div>
@@ -327,27 +326,27 @@ const Scenes = () => {
         </div>
       </section>
 
-      {/* SEKCJA AUTOMATYZACJI - Wdrożenie interaktywnego UI */}
+      {/* SEKCJA AUTOMATYZACJI */}
       <section className="pt-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-display text-xl font-semibold">Automations</h2>
-          <Button onClick={() => openAutoEditor()} className="rounded-full px-5 py-2.5 shadow-md hover:shadow-lg transition-all h-11 focus-visible:ring-0">
+          <Button onClick={() => openAutoEditor()} className="rounded-full px-5 py-2.5 shadow-md transition-all h-11 focus-visible:ring-0">
             <Plus className="h-4 w-4 mr-2" /> Create Automation
           </Button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {isLoadingAuto ? (
-            <p className="text-muted-foreground py-10 col-span-full">Loading automations...</p>
-          ) : automations.length === 0 ? (
-            <div className="col-span-full py-12 flex flex-col items-center justify-center border border-white/10 rounded-[28px] bg-muted/10">
-              <Settings2 className="h-10 w-10 text-muted-foreground mb-3 opacity-50" />
-              <p className="font-medium text-foreground">No automations yet</p>
-              <p className="text-sm text-muted-foreground mt-1 mb-4">Create your first rule to automate devices.</p>
-              <Button onClick={() => openAutoEditor()} className="rounded-xl h-11 shadow-md focus-visible:ring-0">Create Automation</Button>
-            </div>
-          ) : (
-            automations.map((a: any) => {
+        {isLoadingAuto ? (
+          <p className="text-muted-foreground py-10 col-span-full">Loading automations...</p>
+        ) : automations.length === 0 ? (
+          <div className="col-span-full py-12 flex flex-col items-center justify-center border border-white/10 rounded-[28px] bg-muted/10">
+            <Settings2 className="h-10 w-10 text-muted-foreground mb-3 opacity-50" />
+            <p className="font-medium text-foreground">No automations yet</p>
+            <p className="text-sm text-muted-foreground mt-1 mb-4">Create your first rule to automate devices.</p>
+            <Button onClick={() => openAutoEditor()} className="rounded-xl h-11 shadow-md focus-visible:ring-0">Create Automation</Button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {automations.map((a: any) => {
               let desc = "Triggered by event";
               let IconObj = Activity;
               
@@ -367,39 +366,38 @@ const Scenes = () => {
               return (
                 <GlassCard 
                   key={a.id} 
+                  hover
+                  onClick={() => openAutoEditor(a)}
                   className={cn(
-                    "p-6 cursor-pointer relative overflow-hidden min-h-[160px] flex flex-col justify-between transition-all duration-300",
+                    "px-5 py-3.5 cursor-pointer flex items-center gap-4 transition-all duration-300",
                     !a.is_enabled && "opacity-60 grayscale-[30%]"
                   )}
-                  onClick={() => openAutoEditor(a)}
                 >
-                  <div className="relative z-10 flex items-start justify-between">
-                    <div className="h-12 w-12 rounded-2xl bg-muted/50 flex items-center justify-center border border-white/5 backdrop-blur-md">
-                      <IconObj className="h-5 w-5 text-foreground" />
-                    </div>
-                    
-                    <div className="flex items-center gap-3">
-                      <div onClick={(e) => e.stopPropagation()}>
-                        <Switch checked={a.is_enabled} onCheckedChange={(v) => toggleAutomation(a.id, v)} />
-                      </div>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); openAutoEditor(a); }} 
-                        className="h-10 w-10 rounded-full bg-background/50 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background/80 transition-all backdrop-blur-sm opacity-80 active:scale-95 focus-visible:ring-0"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                    </div>
+                  <div className="h-10 w-10 rounded-xl bg-muted/50 flex items-center justify-center border border-white/5 backdrop-blur-md shrink-0">
+                    <IconObj className="h-4.5 w-4.5 text-foreground" />
                   </div>
                   
-                  <div className="relative z-10 mt-6">
-                    <h3 className="font-display text-xl font-semibold truncate">{a.name}</h3>
-                    <p className="text-sm text-muted-foreground mt-1 line-clamp-1">{desc}</p>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-display text-base font-semibold truncate leading-tight">{a.name}</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{desc}</p>
+                  </div>
+                  
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <Switch checked={a.is_enabled} onCheckedChange={(v) => toggleAutomation(a.id, v)} />
+                    </div>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); openAutoEditor(a); }} 
+                      className="h-9 w-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background/60 transition-all active:scale-95 focus-visible:ring-0"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
                   </div>
                 </GlassCard>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
       </section>
 
       {/* ===================================== */}
@@ -462,7 +460,7 @@ const Scenes = () => {
 
             <div className="space-y-4 pt-4 border-t border-border/40">
               <div className="flex items-center justify-between">
-                <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Device Actions</label>
+                <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1 block mb-0">Device Actions</label>
                 
                 <Select onValueChange={addAction}>
                   <SelectTrigger className="w-[200px] h-11 text-sm rounded-xl bg-background/50 border-white/10">
@@ -479,7 +477,7 @@ const Scenes = () => {
               </div>
 
               {formData.actions.length === 0 ? (
-                <div className="text-center py-10 bg-background/30 rounded-3xl border border-dashed border-border/40">
+                <div className="text-center py-10 bg-background/30 rounded-3xl border border-white/10">
                   <Settings2 className="h-10 w-10 text-muted-foreground/50 mx-auto mb-3" />
                   <p className="text-base font-medium text-foreground/80">No devices configured</p>
                   <p className="text-sm text-muted-foreground mt-1">Select devices from the list above to automate them.</p>
@@ -621,15 +619,15 @@ const Scenes = () => {
                 type="button" 
                 variant="ghost" 
                 onClick={() => { setIsModalOpen(false); setSceneToDelete(formData.id!); }} 
-                className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl px-4 h-12"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl px-4 h-12 focus-visible:ring-0"
               >
                 <Trash2 className="h-5 w-5 mr-2" /> Delete
               </Button>
             ) : <div />}
             
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={() => setIsModalOpen(false)} className="rounded-xl bg-background hover:bg-muted h-12 px-6">Cancel</Button>
-              <Button onClick={handleSaveScene} className="rounded-xl shadow-md h-12 px-8">Save Scene</Button>
+              <Button variant="outline" onClick={() => setIsModalOpen(false)} className="rounded-xl border-none bg-muted hover:bg-muted/80 h-12 px-6 focus-visible:ring-0">Cancel</Button>
+              <Button onClick={handleSaveScene} className="rounded-xl shadow-md h-12 px-8 focus-visible:ring-0">Save Scene</Button>
             </div>
           </DialogFooter>
         </DialogContent>
@@ -640,14 +638,14 @@ const Scenes = () => {
       {/* ===================================== */}
       <Dialog open={isAutoModalOpen} onOpenChange={setIsAutoModalOpen}>
         <DialogContent className="glass border-white/20 rounded-[28px] max-w-xl p-0 overflow-hidden flex flex-col max-h-[85vh]">
-          <DialogHeader className="p-6 pb-2 shrink-0">
+          <DialogHeader className="p-6 pb-2 shrink-0 border-b border-white/10 bg-background/20">
             <DialogTitle className="font-display text-2xl">{autoForm.id ? "Edit Automation" : "New Automation"}</DialogTitle>
           </DialogHeader>
           
-          <div className="flex-1 overflow-y-auto p-6 pt-2 space-y-6 no-scrollbar">
+          <div className="flex-1 overflow-y-auto p-6 pt-4 space-y-8 no-scrollbar">
             
             <div>
-              <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2 ml-1 block">Automation Name</label>
+              <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2 ml-1 block">Rule Name</label>
               <Input 
                 value={autoForm.name} 
                 onChange={e => setAutoForm((prev:any) => ({ ...prev, name: e.target.value }))} 
@@ -656,40 +654,70 @@ const Scenes = () => {
               />
             </div>
 
-            {/* BLOCK 1: WYZWALACZ (TRIGGER) */}
-            <div className="bg-card border border-border/60 rounded-3xl p-5 shadow-sm space-y-4">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">1. Trigger Event</label>
-              </div>
+            {/* BLOCK 1: TRIGGER */}
+            <div className="space-y-4">
+              <label className="text-xs uppercase tracking-wider text-foreground font-semibold mb-2 ml-1 block">Trigger Event</label>
 
-              <div className="flex gap-2 p-1 bg-muted/40 rounded-xl border border-border/50">
-                  <Button 
-                      variant="ghost" 
-                      className={cn("flex-1 rounded-lg text-sm font-semibold transition-all focus-visible:ring-0", autoForm.trigger_type === "time" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground")}
-                      onClick={() => setAutoForm((prev:any) => ({ ...prev, trigger_type: "time", trigger_config: { time: "08:00" } }))}
-                  >
-                      <Clock className="h-4 w-4 mr-2" /> Time
-                  </Button>
-                  <Button 
-                      variant="ghost" 
-                      className={cn("flex-1 rounded-lg text-sm font-semibold transition-all focus-visible:ring-0", autoForm.trigger_type === "device_state" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground")}
-                      onClick={() => setAutoForm((prev:any) => ({ ...prev, trigger_type: "device_state", trigger_config: { device: "", property: "", value: "" } }))}
-                  >
-                      <ShieldAlert className="h-4 w-4 mr-2" /> Device
-                  </Button>
+              <div 
+                role="tablist" 
+                aria-label="Trigger type" 
+                className="relative grid grid-cols-2 items-center glass rounded-full p-1 h-11 bg-background/20 border border-white/10 select-none"
+              >
+                <div 
+                  aria-hidden 
+                  className="absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-full bg-primary shadow-lg transition-transform duration-300 ease-out" 
+                  style={{ transform: `translateX(${autoForm.trigger_type === "time" ? "4px" : "calc(100% + 4px)"})` }} 
+                />
+                <button 
+                  type="button" role="tab" 
+                  aria-selected={autoForm.trigger_type === "time"} 
+                  onClick={() => setAutoForm((p:any) => ({ ...p, trigger_type: "time", trigger_config: { time: "08:00" } }))} 
+                  className={cn("relative z-10 inline-flex items-center justify-center gap-1.5 h-9 rounded-full text-sm font-medium transition-colors outline-none", autoForm.trigger_type === "time" ? "text-primary-foreground" : "text-muted-foreground")}
+                >
+                  <Clock className="h-4 w-4" /> Time
+                </button>
+                <button 
+                  type="button" role="tab" 
+                  aria-selected={autoForm.trigger_type === "device_state"} 
+                  onClick={() => setAutoForm((p:any) => ({ ...p, trigger_type: "device_state", trigger_config: { device: "", property: "", value: "" } }))} 
+                  className={cn("relative z-10 inline-flex items-center justify-center gap-1.5 h-9 rounded-full text-sm font-medium transition-colors outline-none", autoForm.trigger_type === "device_state" ? "text-primary-foreground" : "text-muted-foreground")}
+                >
+                  <Cpu className="h-4 w-4" /> Device
+                </button>
               </div>
 
               <div className="pt-2">
-                {autoForm.trigger_type === "time" && (
-                  <div className="flex items-center justify-center p-4 bg-background/50 rounded-2xl border border-white/10">
-                    <Input 
-                      type="time" 
-                      value={autoForm.trigger_config.time || "08:00"} 
-                      onChange={(e) => setAutoForm((prev:any) => ({...prev, trigger_config: {...prev.trigger_config, time: e.target.value}}))} 
-                      className="h-12 rounded-xl text-xl font-bold w-36 text-center border-none bg-transparent shadow-none focus-visible:ring-0" 
-                    />
-                  </div>
-                )}
+                {autoForm.trigger_type === "time" && (() => {
+                  const [hStr, mStr] = (autoForm.trigger_config.time || "08:00").split(":");
+                  const h = parseInt(hStr,10)||0, m = parseInt(mStr,10)||0;
+                  const setTime = (nh:number, nm:number) => {
+                    const hh = ((nh%24)+24)%24, mm = ((nm%60)+60)%60;
+                    const t = `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`;
+                    setAutoForm((p:any) => ({ ...p, trigger_config: { ...p.trigger_config, time: t } }));
+                  };
+                  const StepBtn = ({ onClick, children }:any) => (
+                    <button type="button" onClick={onClick} className="h-10 w-10 shrink-0 rounded-full bg-background/80 border border-border/50 flex items-center justify-center text-foreground hover:bg-primary hover:text-primary-foreground hover:border-transparent transition">
+                      {children}
+                    </button>
+                  );
+                  const Unit = ({ value, onDec, onInc, label }:any) => (
+                    <div className="flex items-center gap-3 flex-1 min-w-0 justify-center">
+                      <StepBtn onClick={onDec}><Minus className="h-4 w-4" /></StepBtn>
+                      <div className="text-center leading-none">
+                        <p className="font-display text-3xl font-semibold tabular-nums">{String(value).padStart(2,"0")}</p>
+                        <p className="mt-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+                      </div>
+                      <StepBtn onClick={onInc}><Plus className="h-4 w-4" /></StepBtn>
+                    </div>
+                  );
+                  return (
+                    <div className="rounded-2xl bg-background/50 border border-border/40 px-4 py-4 flex items-center justify-between gap-2">
+                      <Unit label="Hour"   value={h} onDec={() => setTime(h-1, m)} onInc={() => setTime(h+1, m)} />
+                      <span className="font-display text-2xl font-semibold text-muted-foreground">:</span>
+                      <Unit label="Minute" value={m} onDec={() => setTime(h, m-5)} onInc={() => setTime(h, m+5)} />
+                    </div>
+                  );
+                })()}
 
                 {autoForm.trigger_type === "device_state" && (
                   <div className="space-y-4">
@@ -732,9 +760,9 @@ const Scenes = () => {
               </div>
             </div>
 
-            {/* BLOCK 2: WARUNEK (CONDITION) */}
-            <div className="bg-card border border-border/60 rounded-3xl p-5 shadow-sm">
-              <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3 block">2. Condition (Optional)</label>
+            {/* BLOCK 2: CONDITION */}
+            <div className="pt-6 border-t border-border/40 space-y-3">
+              <label className="text-xs uppercase tracking-wider text-foreground font-semibold mb-2 ml-1 block">Condition (Optional)</label>
               <Select value={autoForm.condition_config?.mode || "any"} onValueChange={(v) => setAutoForm((prev:any) => ({ ...prev, condition_config: {mode: v} }))}>
                 <SelectTrigger className="w-full h-12 text-base rounded-xl bg-background/50 border-white/10 px-4">
                   <SelectValue />
@@ -747,14 +775,11 @@ const Scenes = () => {
               </Select>
             </div>
 
-            {/* BLOCK 3: AKCJA (ACTION) */}
-            <div className="bg-card border-2 border-primary/30 rounded-3xl p-5 shadow-sm relative overflow-hidden">
-              <div className="absolute top-0 right-0 -mr-6 -mt-6 opacity-5 pointer-events-none">
-                <PlaySquare className="h-32 w-32" />
-              </div>
-              <label className="text-xs uppercase tracking-wider text-primary font-bold mb-3 block">3. Then Run Scene</label>
+            {/* BLOCK 3: ACTION */}
+            <div className="pt-6 border-t border-border/40 space-y-3">
+              <label className="text-xs uppercase tracking-wider text-primary font-bold mb-2 ml-1 block">Scene To Run</label>
               <Select value={autoForm.action_config?.scene_id ? String(autoForm.action_config.scene_id) : ""} onValueChange={(v) => setAutoForm((prev:any) => ({ ...prev, action_config: {scene_id: Number(v)} }))}>
-                <SelectTrigger className="w-full h-12 text-base rounded-xl bg-background border-white/10 px-4 shadow-sm relative z-10 font-medium">
+                <SelectTrigger className="w-full h-12 text-base rounded-xl bg-background/50 border-white/10 px-4 shadow-sm border-primary/30">
                   <SelectValue placeholder="Select a Scene..." />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-white/10 glass">
@@ -785,7 +810,7 @@ const Scenes = () => {
             ) : <div />}
             
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={() => setIsAutoModalOpen(false)} className="rounded-xl bg-background hover:bg-muted h-12 px-6 focus-visible:ring-0">Cancel</Button>
+              <Button variant="outline" onClick={() => setIsAutoModalOpen(false)} className="rounded-xl border-none bg-muted hover:bg-muted/80 h-12 px-6 focus-visible:ring-0">Cancel</Button>
               <Button onClick={saveAutomation} className="rounded-xl shadow-md h-12 px-8 focus-visible:ring-0">Save Rule</Button>
             </div>
           </DialogFooter>
@@ -801,7 +826,7 @@ const Scenes = () => {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-xl border-none hover:bg-muted h-11 focus-visible:ring-0">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="rounded-xl border-none bg-muted hover:bg-muted/80 h-11 focus-visible:ring-0">Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => { if (sceneToDelete) handleDelete(sceneToDelete); setSceneToDelete(null); }} className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 h-11 focus-visible:ring-0">
               Delete
             </AlertDialogAction>
@@ -816,7 +841,7 @@ const Scenes = () => {
             <AlertDialogDescription>Are you sure you want to permanently delete this automation rule?</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-xl border-none hover:bg-muted h-11 focus-visible:ring-0">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="rounded-xl border-none bg-muted hover:bg-muted/80 h-11 focus-visible:ring-0">Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => { if (autoToDelete) deleteAutomation(autoToDelete); setAutoToDelete(null); }} className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 h-11 focus-visible:ring-0">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

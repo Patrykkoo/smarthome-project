@@ -1,43 +1,22 @@
-1. Przy dodawaniu urządzenia dziwnie się zachowuje switch.
-Urządzenie, które jest włączone przy połączeniu najpierw jest
-pokazane jako włączone, później przy kliknięciu zmiany nazwy
-zmienia się na wyłączone.
+1. Responsywnośc na ipadzie (rozwinięty sidebar)
 
-2. Przycisk od łączenia urządzeń, w trakcie odliczania czasu, zmienia
-długość w zaleności od wielkości cyfr.
+2. Kolor w kółku pokazuje inny od faktycznie wybranego w zarowkach
 
-3. Ikonki powiadomień
+3. Ikonki czujników i kolory dla wyrónienia działania
 
-4. Responsywność w przeglądarce
+4. Pikanie przy alarmie działa jak chce, nie znika powiadomienie od contact sensor
 
-5. Kolor w kółku pokazuje inny od faktycznie wybranego w zarowkach
+5. Dodanie opcji w Settings do wpisania miejscowości (pokazywanie aktualnej pogody)
 
-6. Nie pokazuje całościowego zuzycia prądu w kWh
+6. Przy zwęzonym oknie nie widać trybu Home/Away, zjebany sidebar
 
-7. Ikonki czujników i kolory dla wyrónienia działania
+7. Niektóre powiadomienia mają inne ikonki (np. usunięcie urządzenia), nie licząc ostrzezen typu
+brak nazwy przy tworzeniu sceny
 
-8. Pikanie przy alarmie działa jak chce
+8. Po wyjściu z zakładki Scenes znika napis Active z kafelka, nie zaznacza aktywnej sceny w quick
+scenes na dashboardzie (tez po kliknieciu i przejsciu do Scenes nie ma tego active, a przy powrocie
+do dashboardu znowu ta scena nie jest zaznaczona)
 
-9. Wykrywanie lokalizacji w dashboardzie
+9. Po odświezeniu aplikacji tryb sam wraca z away na home + inne niektóre funkcje tez przywracają się do stanu domyślnego
 
-10. Wybór lokalizacji do pogody w ustawieniach.
-
-11. Część ikon powiadomień jest inna
-
-12. Przy zwęzonym oknie nie widać trybu Home/Away
-
-13. Przy zwezonym oknie menu powiadomien nie powinno byc na caly ekran
-
-14. Skontrolować i poprawić spójnie odległości między elementami
-
-15. Powiadomienie o usunięciu urządzenia
-
-16. Przycisk Pairing Mode zmienia długość po kliknięciu
-
-17. Scena przestaje być aktywna po wyjściu z zakładki i odświezeniu strony
-
-18. Przy tworzeniu sceny/automatyzacji powiadomienia muszą być takie same (brak nazwy itd.)
-
-19. Przy trybie away gdy się otworzy okno to wyskakuje powiadomienie i nie znika mimo zamknięcia okna
-
-20. Po odświezeniu aplikacji tryb sam wraca z away na home
+10. Sprawdzić wszystkie teksty, tytuły, treści i ewentualnie poprawić

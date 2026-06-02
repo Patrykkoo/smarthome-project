@@ -7,10 +7,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { auth } from "@/lib/auth";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
-// Dodano typ 'success' do powiadomień
 export type NotificationType = "alert" | "warning" | "info" | "leak" | "offline" | "battery" | "success";
 
 export interface AppNotification {
@@ -31,9 +31,6 @@ const getRelativeTime = (isoString: string) => {
   return `${Math.floor(diff / 86400)}d ago`;
 };
 
-// ==========================================
-// KOMPONENT: PRESENCE TOGGLE
-// ==========================================
 type Mode = "home" | "away";
 
 interface PresenceToggleProps {
@@ -153,9 +150,6 @@ function PresenceToggle({ initialMode = "home", onChange, className }: PresenceT
   );
 }
 
-// ==========================================
-// GŁÓWNY KOMPONENT: TOPBAR
-// ==========================================
 export function Topbar() {
   const { socket } = useWebSockets();
   const { data: devices = [] } = useDevices();
@@ -168,6 +162,30 @@ export function Topbar() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   
+  const [userName, setUserName] = useState(auth.getCurrentUser()?.username || 'Guest');
+  
+  // USTAWIENIA POBIERANE Z LOCALSTORAGE
+  const [homeName, setHomeName] = useState(localStorage.getItem('livora_home_name') || 'My Smart Home');
+  const [sysSounds, setSysSounds] = useState(localStorage.getItem('livora_sys_sounds') !== 'false');
+  const [alertOffline, setAlertOffline] = useState(localStorage.getItem('livora_alert_offline') !== 'false');
+  const [alertBattery, setAlertBattery] = useState(localStorage.getItem('livora_alert_battery') !== 'false');
+
+  useEffect(() => {
+    const handleAuthChange = () => {
+      setUserName(auth.getCurrentUser()?.username || 'Guest');
+      setHomeName(localStorage.getItem('livora_home_name') || 'My Smart Home');
+      setSysSounds(localStorage.getItem('livora_sys_sounds') !== 'false');
+      setAlertOffline(localStorage.getItem('livora_alert_offline') !== 'false');
+      setAlertBattery(localStorage.getItem('livora_alert_battery') !== 'false');
+    };
+    window.addEventListener('auth_changed', handleAuthChange);
+    window.addEventListener('user_settings_changed', handleAuthChange);
+    return () => {
+      window.removeEventListener('auth_changed', handleAuthChange);
+      window.removeEventListener('user_settings_changed', handleAuthChange);
+    };
+  }, []);
+
   const notifiedStatesRef = useRef<Set<string>>(new Set());
   const hasInitializedStates = useRef(false);
   const [activeAlarms, setActiveAlarms] = useState<Set<string>>(new Set());
@@ -274,7 +292,7 @@ export function Topbar() {
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isAlarmActive) {
+    if (isAlarmActive && sysSounds) { // ODCZYTYWANIE USTAWIEŃ DŹWIĘKU
       const playBeep = () => {
         const ctx = audioCtxRef.current;
         if (!ctx) return;
@@ -301,7 +319,7 @@ export function Topbar() {
       interval = setInterval(playBeep, 1000); 
     }
     return () => { if (interval) clearInterval(interval); };
-  }, [isAlarmActive]);
+  }, [isAlarmActive, sysSounds]);
 
   useEffect(() => {
     if (!socket) return;
@@ -364,24 +382,31 @@ export function Topbar() {
         }
       }
 
+      // ODCZYTYWANIE USTAWIEŃ OFFLINE
       const isOffline = payload.state === 'OFFLINE' || payload.state === 'offline' || payload.availability === 'offline';
       const offlineKey = `${friendlyName}_offline`;
       if (isOffline && !notifiedStatesRef.current.has(offlineKey)) {
         if (ignoredOfflineRef.current.has(friendlyName)) return; 
-        
         notifiedStatesRef.current.add(offlineKey);
-        notifyAndSave("offline", "Device Offline", `${friendlyName} lost connection to the network.`, offlineKey);
+        
+        if (alertOffline) {
+          notifyAndSave("offline", "Device Offline", `${friendlyName} lost connection to the network.`, offlineKey);
+        }
       } else if (!isOffline && (payload.state || payload.availability) && notifiedStatesRef.current.has(offlineKey)) {
         notifiedStatesRef.current.delete(offlineKey);
         toast.dismiss(offlineKey);
       }
 
+      // ODCZYTYWANIE USTAWIEŃ BATERII
       if (payload.battery !== undefined) {
         const bat = Number(payload.battery);
         const batKey = `${friendlyName}_battery`;
         if (bat <= 15 && !notifiedStatesRef.current.has(batKey)) {
           notifiedStatesRef.current.add(batKey);
-          notifyAndSave("battery", "Low Battery", `${friendlyName} battery is at ${bat}%. Replace soon.`, batKey);
+          
+          if (alertBattery) {
+            notifyAndSave("battery", "Low Battery", `${friendlyName} battery is at ${bat}%. Replace soon.`, batKey);
+          }
         } else if (bat > 15 && notifiedStatesRef.current.has(batKey)) {
           notifiedStatesRef.current.delete(batKey);
           toast.dismiss(batKey);
@@ -405,7 +430,7 @@ export function Topbar() {
       socket.off('device_joined', handleDeviceJoined);
       socket.off('device_list_updated', handleListUpdate);
     };
-  }, [socket, queryClient]);
+  }, [socket, queryClient, alertBattery, alertOffline]); // Wpięte zależności ustawień
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -463,9 +488,10 @@ export function Topbar() {
         <SidebarTrigger className="rounded-xl glass h-11 w-11" />
 
         <div className="hidden md:block flex-1">
-          <h2 className="font-display text-lg font-semibold leading-tight">Hi, Patryk</h2>
+          <h2 className="font-display text-lg font-semibold leading-tight">Hi, {userName}</h2>
           <p className="text-xs text-muted-foreground">
-            {isPairing ? `Pairing active: ${formatTime(timeLeft)}` : "Welcome home."}
+            {/* WSTAWIONA NAZWA DOMU */}
+            {isPairing ? `Pairing active: ${formatTime(timeLeft)}` : `Welcome to ${homeName}.`}
           </p>
         </div>
 
@@ -508,7 +534,7 @@ export function Topbar() {
 
           <button 
             onClick={() => setIsNotificationsOpen(true)}
-            className="relative h-11 w-11 rounded-full glass flex items-center justify-center transition-transform active:scale-95"
+            className="relative h-11 w-11 rounded-full glass flex items-center justify-center transition-transform active:scale-95 focus-visible:ring-0 outline-none"
           >
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
@@ -534,17 +560,17 @@ export function Topbar() {
               {unreadCount > 0 ? `You have ${unreadCount} unread messages` : "You're all caught up."}
             </p>
           </div>
-          <button onClick={() => setIsNotificationsOpen(false)} className="h-11 w-11 rounded-full glass flex items-center justify-center active:scale-95 transition-transform">
+          <button onClick={() => setIsNotificationsOpen(false)} className="h-11 w-11 rounded-full glass flex items-center justify-center active:scale-95 transition-transform focus-visible:ring-0">
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {notifications.length > 0 && (
           <div className="flex items-center justify-between px-6 py-4 border-b border-border/40">
-            <button onClick={markAllAsRead} disabled={unreadCount === 0} className="text-sm font-medium flex items-center gap-2 text-muted-foreground active:text-foreground transition-colors disabled:opacity-50">
+            <button onClick={markAllAsRead} disabled={unreadCount === 0} className="text-sm font-medium flex items-center gap-2 text-muted-foreground active:text-foreground transition-colors disabled:opacity-50 focus-visible:ring-0">
               <CheckCheck className="h-4 w-4" /> Mark all as read
             </button>
-            <button onClick={clearAllNotifications} className="text-sm font-medium flex items-center gap-2 text-destructive active:text-destructive/80 transition-colors">
+            <button onClick={clearAllNotifications} className="text-sm font-medium flex items-center gap-2 text-destructive active:text-destructive/80 transition-colors focus-visible:ring-0">
               <Trash2 className="h-4 w-4" /> Clear all
             </button>
           </div>
@@ -573,7 +599,7 @@ export function Topbar() {
                 <div 
                   key={n.id}
                   onClick={() => markAsRead(n.id)}
-                  className={cn("relative p-4 rounded-2xl transition-colors border", !n.read ? "bg-background/60 border-border/60 shadow-sm" : "bg-transparent border-transparent opacity-75")}
+                  className={cn("relative p-4 rounded-2xl transition-colors border cursor-pointer", !n.read ? "bg-background/60 border-border/60 shadow-sm" : "bg-transparent border-transparent opacity-75")}
                 >
                   {!n.read && <span className="absolute top-5 right-5 h-2 w-2 rounded-full bg-accent" />}
                   <div className="flex gap-4">

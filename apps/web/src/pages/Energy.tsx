@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Zap, Plug, Lightbulb, Thermometer, Banknote, Flame, ArrowUpRight, Clock, Droplets, Lock, TrendingUp, TrendingDown, Pencil, Activity } from "lucide-react";
+import { Zap, Plug, Lightbulb, Thermometer, Clock, Droplets, Lock, TrendingUp, TrendingDown, Activity, DollarSign } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
 import { TimeframeToggle, TimeframeMode } from "@/components/livora/TimeframeToggle";
 import { useDevices } from "@/hooks/use-devices";
@@ -7,9 +7,6 @@ import { useWebSockets } from "@/hooks/use-websockets";
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -35,12 +32,10 @@ const generateSparkline = (data: number[], width: number, height: number) => {
 const Energy = () => {
   const [timeframe, setTimeframe] = useState<TimeframeMode>("week");
   const [selectedBar, setSelectedBar] = useState<number | null>(null);
-  const [energyRate, setEnergyRate] = useState<number>(() => {
-    const saved = localStorage.getItem('livora_energy_rate');
-    return saved ? parseFloat(saved) : 1.15;
-  });
-  const [isRateDialogOpen, setIsRateDialogOpen] = useState(false);
-  const [tempRate, setTempRate] = useState(energyRate.toString());
+
+  // Pobieranie globalnych ustawień z localStorage
+  const energyRate = parseFloat(localStorage.getItem('livora_energy_rate') || '1.15');
+  const currency = localStorage.getItem('livora_currency') || 'PLN';
 
   const { data: devices = [] } = useDevices();
   const { socket } = useWebSockets();
@@ -181,14 +176,8 @@ const Energy = () => {
   const maxValueInChart = Math.max(...chartData.map((d: any) => d.value));
   const maxChartValue = maxValueInChart > 0 ? maxValueInChart : 1;
 
-  const handleSaveRate = () => {
-    const parsed = parseFloat(tempRate.replace(',', '.'));
-    if (!isNaN(parsed) && parsed > 0) {
-      setEnergyRate(parsed);
-      localStorage.setItem('livora_energy_rate', parsed.toString());
-      setIsRateDialogOpen(false);
-    }
-  };
+  // Obliczenie aktualnego kosztu
+  const totalCost = todayKwh * energyRate;
 
   return (
     <div className="max-w-[1400px] mx-auto pb-10 flex flex-col gap-6">
@@ -252,7 +241,7 @@ const Energy = () => {
 
         <div className="flex flex-col justify-between gap-4 lg:col-span-3 min-h-[260px] lg:h-[260px]">
           <GlassCard className="px-5 py-4 flex-1 flex flex-col justify-center">
-            <p className="text-sm font-medium flex items-center gap-2">
+            <p className="text-sm font-medium flex items-center gap-2 text-foreground">
               <Plug className="h-4 w-4" /> Usage {timeframe === 'week' ? 'this week' : timeframe === 'month' ? 'this month' : 'this year'}
             </p>
             <div className="mt-1">
@@ -265,22 +254,17 @@ const Energy = () => {
             </div>
           </GlassCard>
 
-          <GlassCard className="px-5 py-4 flex-1 flex flex-col justify-center relative">
+          <GlassCard className="px-5 py-4 flex-1 flex flex-col justify-center">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-medium flex items-center gap-2">
-                <Banknote className="h-4 w-4" /> Est. Cost
-              </p>
-              <button onClick={() => setIsRateDialogOpen(true)} className="absolute top-4 right-4 h-7 w-7 rounded-lg bg-muted/30 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors">
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <DollarSign className="h-4 w-4" /> Est. Cost
+              </div>
             </div>
             <div className="mt-1">
               <p className="font-display text-4xl font-semibold tracking-tight">
-                {timeframeCost.toFixed(2)}<span className="text-lg text-muted-foreground font-medium ml-1">PLN</span>
+                {currency} {totalCost.toFixed(2)}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Based on {energyRate.toFixed(2)} PLN/kWh
-              </p>
+              <p className="text-xs text-muted-foreground mt-1">Based on {energyRate} {currency}/kWh</p>
             </div>
           </GlassCard>
         </div>
@@ -315,7 +299,6 @@ const Energy = () => {
                         <p className="text-[10px] text-muted-foreground uppercase mt-0.5">{dev.room}</p>
                       </div>
                     </div>
-                    {/* Zwiększona czcionka i zachowana idealna spójność wizualna jednostek z kafelkiem Device Breakdown */}
                     <span className="font-display text-base font-bold text-foreground/90 shrink-0">
                       {Math.round(dev.power)} <span className="text-[10px] font-medium text-muted-foreground uppercase">W</span>
                     </span>
@@ -430,50 +413,6 @@ const Energy = () => {
         </GlassCard>
       </div>
 
-      {/* SMART ANALYSIS */}
-      <div>
-        <h2 className="font-display text-xl font-semibold mb-4 ml-1">Smart Analysis</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <GlassCard className="p-5 flex items-start gap-4">
-            <div className="h-10 w-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center text-primary"><Flame className="h-5 w-5" /></div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">Top Consumer</p>
-              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                <span className="font-bold text-foreground">Water Heater</span> is responsible for 35% of your total usage. Lowering its target temperature by 2°C could save you ~15 PLN.
-              </p>
-            </div>
-          </GlassCard>
-          <GlassCard className="p-5 flex items-start gap-4">
-            <div className="h-10 w-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center text-primary"><Clock className="h-5 w-5" /></div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">Peak Hours</p>
-              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                Your highest consumption occurs between <span className="font-bold text-foreground">18:00 and 20:00</span>. Consider running heavy appliances later at night.
-              </p>
-            </div>
-          </GlassCard>
-          <GlassCard className="p-5 flex items-start gap-4">
-            <div className="h-10 w-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center text-primary"><ArrowUpRight className="h-5 w-5" /></div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">Trend Watch</p>
-              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                Your overall energy usage is <span className="font-bold text-primary">4% lower</span> compared to the previous period. Great job!
-              </p>
-            </div>
-          </GlassCard>
-        </div>
-      </div>
-
-      <Dialog open={isRateDialogOpen} onOpenChange={setIsRateDialogOpen}>
-        <DialogContent className="glass border-white/20 rounded-[28px] max-w-sm">
-          <DialogHeader><DialogTitle className="font-display">Set Energy Rate</DialogTitle></DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground mb-3">Enter the price per kWh (in PLN) from your energy provider.</p>
-            <Input type="number" step="0.01" value={tempRate} onChange={(e) => setTempRate(e.target.value)} className="bg-background/50 border-white/10 rounded-xl font-display text-lg" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleSaveRate(); }}/>
-          </div>
-          <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setIsRateDialogOpen(false)} className="rounded-xl border-none bg-muted hover:bg-muted/80">Cancel</Button><Button onClick={handleSaveRate} className="rounded-xl">Save changes</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
