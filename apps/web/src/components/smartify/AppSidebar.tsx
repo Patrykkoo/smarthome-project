@@ -142,7 +142,7 @@ export function AppSidebar() {
         {currentUser && (
           <div className={cn(
             "flex items-center transition-all",
-            collapsed ? "justify-center w-full" : "mt-2 gap-3 rounded-2xl glass p-3 w-full border border-white/5"
+            collapsed ? "justify-center w-full" : "mt-2 gap-3 rounded-2xl bg-muted/40 p-3 w-full border border-border/50"
           )}>
             <div className={cn(
               "flex shrink-0 items-center justify-center bg-primary/10 overflow-hidden font-display font-semibold uppercase text-primary border border-primary/20 shadow-sm transition-all", 

@@ -93,7 +93,7 @@ export function LockScreen() {
                   className={cn(
                     "w-3.5 h-3.5 rounded-full transition-all duration-300", 
                     i < pin.length 
-                      ? "bg-primary scale-110 shadow-[0_0_12px_rgba(var(--primary),0.6)]" 
+                      ? "bg-primary scale-110"
                       : "bg-muted border border-border/50"
                   )} 
                />

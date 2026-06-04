@@ -22,12 +22,13 @@ import {
   TrendingUp,
   MapPinOff
 } from "lucide-react";
-import { GlassCard } from "@/components/livora/GlassCard";
-import { DeviceTile } from "@/components/livora/DeviceTile";
-import { RoomFilter } from "@/components/livora/RoomFilter";
+import { GlassCard } from "@/components/smartify/GlassCard";
+import { DeviceTile } from "@/components/smartify/DeviceTile";
+import { RoomFilter } from "@/components/smartify/RoomFilter";
 
 import { useDevices } from "@/hooks/use-devices";
 import { useWebSockets } from "@/hooks/use-websockets";
+import { useActiveScene } from "@/hooks/use-active-scene";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { toast } from "sonner";
@@ -83,7 +84,7 @@ const generateSparkline = (data: number[], width: number, height: number) => {
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [activeScene, setActiveScene] = useState<string | null>(null);
+  const { activeSceneId, setActiveScene } = useActiveScene();
   const [activeRoomName, setActiveRoomName] = useState("All");
   const [currentTime, setCurrentTime] = useState(new Date());
   
@@ -111,9 +112,9 @@ const Dashboard = () => {
     queryKey: ['weather', settingsTrigger],
     queryFn: async () => {
       try {
-        const lat = localStorage.getItem('livora_location_lat');
-        const lon = localStorage.getItem('livora_location_lon');
-        const locName = localStorage.getItem('livora_location_name');
+        const lat = localStorage.getItem('smartify_location_lat');
+        const lon = localStorage.getItem('smartify_location_lon');
+        const locName = localStorage.getItem('smartify_location_name');
 
         if (!lat || !lon || !locName) {
           return null; // Jeśli nic nie wpisano, po prostu zwracamy null (Wyświetli "Location not set")
@@ -255,14 +256,14 @@ const Dashboard = () => {
 
     debounceRefs.current[key] = setTimeout(() => {
       axios.post(`${API_URL}/devices/${friendlyName}/set`, { state: 'TOGGLE' })
-        .catch(() => toast.error(`Błąd sterowania: ${friendlyName}`));
+        .catch(() => toast.error(`Control error, ${friendlyName}`));
     }, 250);
   };
 
   const handleSceneTrigger = async (sceneName: string) => {
-    setActiveScene(sceneName);
     const scene = scenes.find((s: any) => s.name === sceneName);
     if (scene) {
+      setActiveScene(scene.id);
       try {
         await axios.post(`${API_URL}/scenes/${scene.id}/trigger`);
       } catch (error) {
@@ -284,6 +285,7 @@ const Dashboard = () => {
   if (devices.some((d: any) => !d.room_id)) roomNames.push("Unassigned");
 
   const sceneNames = scenes.map((s: any) => s.name);
+  const activeSceneName = scenes.find((s: any) => s.id === activeSceneId)?.name || "";
 
   const filteredDevices = activeRoomName === "All" 
     ? devices 
@@ -370,8 +372,6 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto">
-      <h1 className="sr-only">Livora dashboard</h1>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <GlassCard variant="strong" className="lg:col-span-2 p-7 relative overflow-hidden flex flex-col justify-between">
           <div>
@@ -469,7 +469,7 @@ const Dashboard = () => {
           <h2 className="font-display text-xl font-semibold shrink-0">Quick scenes</h2>
           <div className="flex-1 flex justify-end">
             {scenes.length > 0 ? (
-              <RoomFilter rooms={sceneNames} active={activeScene || ""} onChange={handleSceneTrigger} />
+              <RoomFilter rooms={sceneNames} active={activeSceneName} onChange={handleSceneTrigger} />
             ) : (
               <p className="text-sm text-muted-foreground px-2">No scenes yet</p>
             )}

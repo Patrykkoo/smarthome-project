@@ -24,8 +24,11 @@ export function ColorWheel({ hue, saturation, onChange, className }: ColorWheelP
       const radius = rect.width / 2;
       const dist = Math.min(Math.sqrt(dx * dx + dy * dy), radius);
       const sat = Math.round((dist / radius) * 100);
-      let angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-      if (angle < 0) angle += 360;
+      // atan2 mierzy kąt od godziny 3:00 (prawa) zgodnie z ruchem wskazówek,
+      // a tło to conic-gradient liczony od godziny 12:00 (góra). Różnica to +90°.
+      // Bez tego korekcji wybrany odcień był przesunięty względem widocznego koloru.
+      let angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+      angle = ((angle % 360) + 360) % 360;
       onChange(Math.round(angle), sat);
     },
     [onChange],
@@ -43,7 +46,9 @@ export function ColorWheel({ hue, saturation, onChange, className }: ColorWheelP
     };
   }, [dragging, handleFromEvent]);
 
-  const angleRad = (hue * Math.PI) / 180;
+  // Lustrzane przesunięcie -90°, by kropka stała w miejscu, gdzie gradient
+  // faktycznie pokazuje dany odcień (gradient liczony od góry, ekran od prawej).
+  const angleRad = ((hue - 90) * Math.PI) / 180;
   const r = saturation / 100;
   const thumbX = 50 + Math.cos(angleRad) * r * 50;
   const thumbY = 50 + Math.sin(angleRad) * r * 50;

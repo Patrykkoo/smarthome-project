@@ -1,11 +1,2 @@
-1. Kolor w kółku pokazuje inny od faktycznie wybranego w zarowkach
-
-2. Ikonki czujników i kolory dla wyrónienia działania
-
-8. Po wyjściu z zakładki Scenes znika napis Active z kafelka, nie zaznacza aktywnej sceny w quick
-scenes na dashboardzie (tez po kliknieciu i przejsciu do Scenes nie ma tego active, a przy powrocie
-do dashboardu znowu ta scena nie jest zaznaczona)
-
-9. Po odświezeniu aplikacji tryb sam wraca z away na home + inne niektóre funkcje tez przywracają się do stanu domyślnego
-
-10. Sprawdzić wszystkie teksty, tytuły, treści i ewentualnie poprawić
+1. Usunąć wszystko co związane z livora (ew. zamienić na smartify), czasami nawet się pojawiają jakieś
+dziwne h1 z tym napisem, wszystko to jest do usunięcia

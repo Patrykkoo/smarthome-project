@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { auth } from "@/lib/auth";
-import { GlassCard } from "@/components/livora/GlassCard";
+import { GlassCard } from "@/components/smartify/GlassCard";
 import { Home, Delete } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -57,7 +57,7 @@ export default function Login() {
               className={cn(
                 "w-3.5 h-3.5 rounded-full transition-all duration-300",
                 i < pin.length 
-                  ? "bg-primary scale-110 shadow-[0_0_12px_rgba(var(--primary),0.6)]" 
+                  ? "bg-primary scale-110"
                   : "bg-muted border border-border/50"
               )} 
             />

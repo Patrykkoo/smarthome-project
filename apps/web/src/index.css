@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Livora design system — liquid glass on white. All colors HSL. */
+/* Smartify design system — liquid glass on white. All colors HSL. */
 
 @layer base {
   :root {
@@ -128,9 +128,10 @@
     );
     backdrop-filter: blur(28px) saturate(180%);
     -webkit-backdrop-filter: blur(28px) saturate(180%);
-    border: 1px solid hsl(var(--glass-border) / 0.6);
+    /* Ramka ściszona wokół + wyrazisty inset u góry => spójny efekt "jasna góra" na każdej karcie (dark mode). */
+    border: 1px solid hsl(var(--glass-border) / 0.2);
     box-shadow:
-      0 1px 0 0 hsl(var(--glass-border) / 0.8) inset,
+      0 1px 0 0 hsl(var(--glass-border) / 0.9) inset,
       0 20px 50px -20px hsl(var(--glass-shadow) / 0.18),
       0 8px 24px -12px hsl(var(--glass-shadow) / 0.12);
   }
@@ -143,9 +144,9 @@
     );
     backdrop-filter: blur(40px) saturate(200%);
     -webkit-backdrop-filter: blur(40px) saturate(200%);
-    border: 1px solid hsl(var(--glass-border) / 0.7);
+    border: 1px solid hsl(var(--glass-border) / 0.22);
     box-shadow:
-      0 1px 0 0 hsl(var(--glass-border) / 0.9) inset,
+      0 1px 0 0 hsl(var(--glass-border) / 0.95) inset,
       0 24px 60px -20px hsl(var(--glass-shadow) / 0.22);
   }
 

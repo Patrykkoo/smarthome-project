@@ -164,18 +164,18 @@ export function Topbar() {
   
   const [userName, setUserName] = useState(auth.getCurrentUser()?.username || 'Guest');
   
-  const [homeName, setHomeName] = useState(localStorage.getItem('livora_home_name') || 'My Smart Home');
-  const [sysSounds, setSysSounds] = useState(localStorage.getItem('livora_sys_sounds') !== 'false');
-  const [alertOffline, setAlertOffline] = useState(localStorage.getItem('livora_alert_offline') !== 'false');
-  const [alertBattery, setAlertBattery] = useState(localStorage.getItem('livora_alert_battery') !== 'false');
+  const [homeName, setHomeName] = useState(localStorage.getItem('smartify_home_name') || 'My Smart Home');
+  const [sysSounds, setSysSounds] = useState(localStorage.getItem('smartify_sys_sounds') !== 'false');
+  const [alertOffline, setAlertOffline] = useState(localStorage.getItem('smartify_alert_offline') !== 'false');
+  const [alertBattery, setAlertBattery] = useState(localStorage.getItem('smartify_alert_battery') !== 'false');
 
   useEffect(() => {
     const handleAuthChange = () => {
       setUserName(auth.getCurrentUser()?.username || 'Guest');
-      setHomeName(localStorage.getItem('livora_home_name') || 'My Smart Home');
-      setSysSounds(localStorage.getItem('livora_sys_sounds') !== 'false');
-      setAlertOffline(localStorage.getItem('livora_alert_offline') !== 'false');
-      setAlertBattery(localStorage.getItem('livora_alert_battery') !== 'false');
+      setHomeName(localStorage.getItem('smartify_home_name') || 'My Smart Home');
+      setSysSounds(localStorage.getItem('smartify_sys_sounds') !== 'false');
+      setAlertOffline(localStorage.getItem('smartify_alert_offline') !== 'false');
+      setAlertBattery(localStorage.getItem('smartify_alert_battery') !== 'false');
     };
     window.addEventListener('auth_changed', handleAuthChange);
     window.addEventListener('user_settings_changed', handleAuthChange);
@@ -205,7 +205,7 @@ export function Topbar() {
   }, []);
 
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
-    const saved = localStorage.getItem('livora_notifications');
+    const saved = localStorage.getItem('smartify_notifications');
     if (saved) { 
       try { 
         const parsed = JSON.parse(saved);
@@ -226,7 +226,7 @@ export function Topbar() {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   useEffect(() => {
-    localStorage.setItem('livora_notifications', JSON.stringify(notifications));
+    localStorage.setItem('smartify_notifications', JSON.stringify(notifications));
   }, [notifications]);
 
   // DODANE: Globalny nasłuchiwacz innych komponentów (Złapie eventy wysłane z Settings i Devices)
@@ -360,7 +360,7 @@ export function Topbar() {
         if (isLeaking && !notifiedStatesRef.current.has(key)) {
           notifiedStatesRef.current.add(key);
           soundAlarm = true;
-          notifyAndSave("leak", "Water Leak Alert!", `Leak detected on ${friendlyName}.`, key);
+          notifyAndSave("leak", "Water Leak Detected", `${friendlyName} has detected a water leak.`, key);
         } else if (!isLeaking && notifiedStatesRef.current.has(key)) {
           notifiedStatesRef.current.delete(key);
           cancelAlarm = true;
@@ -375,7 +375,7 @@ export function Topbar() {
         if (isTampered && !notifiedStatesRef.current.has(key)) {
           notifiedStatesRef.current.add(key);
           soundAlarm = true;
-          notifyAndSave("alert", "Security Alert!", `Sensor tampered: ${friendlyName}.`, key);
+          notifyAndSave("alert", "Tamper Alert", `${friendlyName} has been tampered with.`, key);
         } else if (!isTampered && notifiedStatesRef.current.has(key)) {
           notifiedStatesRef.current.delete(key);
           cancelAlarm = true;
@@ -390,7 +390,7 @@ export function Topbar() {
         if (!isClosed && presenceModeRef.current === "away" && !notifiedStatesRef.current.has(key)) {
           notifiedStatesRef.current.add(key);
           soundAlarm = true;
-          notifyAndSave("alert", "Intrusion Detected!", `${friendlyName} was opened while system is armed!`, key);
+          notifyAndSave("alert", "Intrusion Detected", `${friendlyName} was opened while the system is armed.`, key);
         } else if (isClosed && notifiedStatesRef.current.has(key)) {
           notifiedStatesRef.current.delete(key);
           cancelAlarm = true;
@@ -405,7 +405,7 @@ export function Topbar() {
         notifiedStatesRef.current.add(offlineKey);
         
         if (alertOffline) {
-          notifyAndSave("offline", "Device Offline", `${friendlyName} lost connection to the network.`, offlineKey);
+          notifyAndSave("offline", "Device Offline", `${friendlyName} has lost connection to the network.`, offlineKey);
         }
       } else if (!isOffline && (payload.state || payload.availability) && notifiedStatesRef.current.has(offlineKey)) {
         notifiedStatesRef.current.delete(offlineKey);
@@ -419,7 +419,7 @@ export function Topbar() {
           notifiedStatesRef.current.add(batKey);
           
           if (alertBattery) {
-            notifyAndSave("battery", "Low Battery", `${friendlyName} battery is at ${bat}%. Replace soon.`, batKey);
+            notifyAndSave("battery", "Low Battery", `${friendlyName} battery is at ${bat}%. Please replace it soon.`, batKey);
           }
         } else if (bat > 15 && notifiedStatesRef.current.has(batKey)) {
           notifiedStatesRef.current.delete(batKey);
@@ -488,7 +488,7 @@ export function Topbar() {
     notifyAndSave(
       "info", 
       mode === "away" ? "System Armed" : "System Disarmed", 
-      mode === "away" ? "Presence mode set to Away. Security active." : "Presence mode set to Home."
+      mode === "away" ? "Presence mode set to Away." : "Presence mode set to Home."
     );
   };
 
@@ -551,7 +551,7 @@ export function Topbar() {
           >
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
-              <span className="absolute top-3 right-3 h-1.5 w-1.5 rounded-full bg-destructive shadow-[0_0_8px_rgba(229,72,77,0.8)]" />
+              <span className="absolute top-3 right-3 h-1.5 w-1.5 rounded-full bg-destructive" />
             )}
           </button>
         </div>
@@ -562,10 +562,13 @@ export function Topbar() {
         onClick={() => setIsNotificationsOpen(false)}
       />
 
-      <div 
-        className={cn("fixed top-0 right-0 z-50 h-full w-full sm:w-[400px] glass border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out flex flex-col", isNotificationsOpen ? "translate-x-0" : "translate-x-full")}
+      <div
+        className={cn("fixed top-0 right-0 z-50 h-full w-full sm:w-[400px] glass border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out flex flex-col overflow-hidden", isNotificationsOpen ? "translate-x-0" : "translate-x-full")}
       >
-        <div className="flex items-center justify-between p-6 pb-4">
+        {/* Własna niebieska poświata - accent jest taki sam w light i dark, więc panel wygląda spójnie w obu motywach */}
+        <div className="pointer-events-none absolute -top-24 -right-16 h-72 w-72 rounded-full bg-accent/40 blur-[110px]" aria-hidden />
+
+        <div className="relative z-10 flex items-center justify-between p-6 pb-4">
           <div>
             <h2 className="font-display text-2xl font-semibold">Notifications</h2>
             <p className="text-sm text-muted-foreground mt-1">
@@ -578,7 +581,7 @@ export function Topbar() {
         </div>
 
         {notifications.length > 0 && (
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border/40">
+          <div className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-border/40">
             <button onClick={markAllAsRead} disabled={unreadCount === 0} className="text-sm font-medium flex items-center gap-2 text-muted-foreground active:text-foreground transition-colors disabled:opacity-50 focus-visible:ring-0">
               <CheckCheck className="h-4 w-4" /> Mark all as read
             </button>
@@ -588,7 +591,7 @@ export function Topbar() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
+        <div className="relative z-10 flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
           {notifications.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center opacity-50 py-20">
               <Bell className="h-12 w-12 mb-4" />

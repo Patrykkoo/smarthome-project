@@ -1,4 +1,4 @@
-// Color helpers for Livora device controls.
+// Color helpers for Smartify device controls.
 
 export function hexToHsl(hex: string): { h: number; s: number; l: number } {
   const m = hex.replace("#", "");

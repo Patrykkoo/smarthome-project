@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { Zap, Plug, Lightbulb, Thermometer, Clock, Droplets, Lock, TrendingUp, TrendingDown, Activity, DollarSign } from "lucide-react";
-import { GlassCard } from "@/components/livora/GlassCard";
-import { TimeframeToggle, TimeframeMode } from "@/components/livora/TimeframeToggle";
+import { GlassCard } from "@/components/smartify/GlassCard";
+import { TimeframeToggle, TimeframeMode } from "@/components/smartify/TimeframeToggle";
 import { useDevices } from "@/hooks/use-devices";
 import { useWebSockets } from "@/hooks/use-websockets";
 import { useQuery } from "@tanstack/react-query";
@@ -34,8 +34,8 @@ const Energy = () => {
   const [selectedBar, setSelectedBar] = useState<number | null>(null);
 
   // Pobieranie globalnych ustawień z localStorage
-  const energyRate = parseFloat(localStorage.getItem('livora_energy_rate') || '1.15');
-  const currency = localStorage.getItem('livora_currency') || 'PLN';
+  const energyRate = parseFloat(localStorage.getItem('smartify_energy_rate') || '1.15');
+  const currency = localStorage.getItem('smartify_currency') || 'PLN';
 
   const { data: devices = [] } = useDevices();
   const { socket } = useWebSockets();
@@ -325,7 +325,7 @@ const Energy = () => {
               const isSelected = selectedBar === index;
               const isAnySelected = selectedBar !== null;
               const barClass = isAnySelected 
-                ? (isSelected ? "bg-primary shadow-[0_0_15px_rgba(var(--primary),0.4)]" : "bg-primary/25") 
+                ? (isSelected ? "bg-primary" : "bg-primary/25")
                 : "bg-primary/90 hover:bg-primary";
 
               const isFirst = index === 0;

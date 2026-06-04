@@ -3,12 +3,12 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AppLayout } from "@/components/livora/AppLayout";
+import { AppLayout } from "@/components/smartify/AppLayout";
 import { useWebSockets } from "./hooks/use-websockets";
 import { auth } from "./lib/auth";
 import { ThemeProvider } from "./hooks/use-theme";
 
-import { LockScreen } from "./components/livora/LockScreen";
+import { LockScreen } from "./components/smartify/LockScreen";
 import Index from "./pages/Index";
 import Devices from "./pages/Devices";
 import Energy from "./pages/Energy";
@@ -57,7 +57,7 @@ const SmartHomeRoot = () => {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <ThemeProvider defaultTheme="system" storageKey="livora_theme">
+    <ThemeProvider defaultTheme="system" storageKey="smartify_theme">
       <TooltipProvider>
         <Toaster />
         <Sonner />

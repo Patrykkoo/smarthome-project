@@ -4,16 +4,17 @@ import {
   Lightbulb, Plug, BedDouble, Music, Gamepad2, Zap, Settings2, Trash, Check,
   Thermometer, Palette, Lock, Unlock, ShieldAlert, Activity, PlaySquare, Minus, Cpu
 } from "lucide-react";
-import { GlassCard } from "@/components/livora/GlassCard";
+import { GlassCard } from "@/components/smartify/GlassCard";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ColorWheel } from "@/components/livora/ColorWheel";
+import { ColorWheel } from "@/components/smartify/ColorWheel";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDevices } from "@/hooks/use-devices";
+import { useActiveScene } from "@/hooks/use-active-scene";
 import axios from "axios";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -49,8 +50,8 @@ const DEVICE_PROPERTIES = [
 const Scenes = () => {
   const queryClient = useQueryClient();
   const { data: devices = [] } = useDevices();
-  
-  const [activeSceneId, setActiveSceneId] = useState<number | null>(null);
+
+  const { activeSceneId, setActiveScene } = useActiveScene();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [sceneToDelete, setSceneToDelete] = useState<number | null>(null);
   
@@ -87,7 +88,7 @@ const Scenes = () => {
   });
 
   const handleTrigger = async (id: number) => {
-    setActiveSceneId(id);
+    setActiveScene(id);
     try {
       await axios.post(`${API_URL}/scenes/${id}/trigger`);
     } catch (error) {
@@ -120,7 +121,7 @@ const Scenes = () => {
     try {
       await axios.delete(`${API_URL}/scenes/${id}`);
       toast.success("Scene deleted");
-      if (activeSceneId === id) setActiveSceneId(null);
+      if (activeSceneId === id) setActiveScene(null);
       queryClient.invalidateQueries({ queryKey: ['scenes'] });
       // Odświeżenie automatyzacji (być może korzystały z tej usuniętej sceny)
       queryClient.invalidateQueries({ queryKey: ['automations'] });

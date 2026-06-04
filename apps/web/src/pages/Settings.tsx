@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { User, Palette, Zap, Bell, Server, Check, Image as ImageIcon, LogOut, Key, UserPlus, Trash2, MapPin } from "lucide-react";
-import { GlassCard } from "@/components/livora/GlassCard";
+import { GlassCard } from "@/components/smartify/GlassCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -46,18 +46,18 @@ const Settings = () => {
   const [newPassword, setNewPassword] = useState("");
   const [inviteUsername, setInviteUsername] = useState("");
 
-  const [homeName, setHomeName] = useState(localStorage.getItem('livora_home_name') || 'My Smart Home');
-  const [timeFormat, setTimeFormat] = useState(localStorage.getItem('livora_time_format') || '24h');
-  const [primaryDashboard, setPrimaryDashboard] = useState(localStorage.getItem('livora_primary_dash') || '/');
-  const [energyRate, setEnergyRate] = useState(localStorage.getItem('livora_energy_rate') || '1.15');
-  const [currency, setCurrency] = useState(localStorage.getItem('livora_currency') || 'PLN');
-  const [sysSounds, setSysSounds] = useState(localStorage.getItem('livora_sys_sounds') !== 'false');
-  const [alertOffline, setAlertOffline] = useState(localStorage.getItem('livora_alert_offline') !== 'false');
-  const [alertBattery, setAlertBattery] = useState(localStorage.getItem('livora_alert_battery') !== 'false');
+  const [homeName, setHomeName] = useState(localStorage.getItem('smartify_home_name') || 'My Smart Home');
+  const [timeFormat, setTimeFormat] = useState(localStorage.getItem('smartify_time_format') || '24h');
+  const [primaryDashboard, setPrimaryDashboard] = useState(localStorage.getItem('smartify_primary_dash') || '/');
+  const [energyRate, setEnergyRate] = useState(localStorage.getItem('smartify_energy_rate') || '1.15');
+  const [currency, setCurrency] = useState(localStorage.getItem('smartify_currency') || 'PLN');
+  const [sysSounds, setSysSounds] = useState(localStorage.getItem('smartify_sys_sounds') !== 'false');
+  const [alertOffline, setAlertOffline] = useState(localStorage.getItem('smartify_alert_offline') !== 'false');
+  const [alertBattery, setAlertBattery] = useState(localStorage.getItem('smartify_alert_battery') !== 'false');
 
-  const [cityName, setCityName] = useState(localStorage.getItem('livora_location_name') || '');
-  const [lat, setLat] = useState(localStorage.getItem('livora_location_lat') || '');
-  const [lon, setLon] = useState(localStorage.getItem('livora_location_lon') || '');
+  const [cityName, setCityName] = useState(localStorage.getItem('smartify_location_name') || '');
+  const [lat, setLat] = useState(localStorage.getItem('smartify_location_lat') || '');
+  const [lon, setLon] = useState(localStorage.getItem('smartify_location_lon') || '');
 
   const handleSave = async () => {
     await auth.updateProfile({ username: userName, avatarUrl: avatarUrl });
@@ -75,23 +75,23 @@ const Settings = () => {
     }
     
     if (cityName && lat && lon) {
-      localStorage.setItem('livora_location_name', cityName);
-      localStorage.setItem('livora_location_lat', lat);
-      localStorage.setItem('livora_location_lon', lon);
+      localStorage.setItem('smartify_location_name', cityName);
+      localStorage.setItem('smartify_location_lat', lat);
+      localStorage.setItem('smartify_location_lon', lon);
     } else {
-      localStorage.removeItem('livora_location_name');
-      localStorage.removeItem('livora_location_lat');
-      localStorage.removeItem('livora_location_lon');
+      localStorage.removeItem('smartify_location_name');
+      localStorage.removeItem('smartify_location_lat');
+      localStorage.removeItem('smartify_location_lon');
     }
 
-    localStorage.setItem('livora_home_name', homeName);
-    localStorage.setItem('livora_time_format', timeFormat);
-    localStorage.setItem('livora_primary_dash', primaryDashboard);
-    localStorage.setItem('livora_energy_rate', energyRate);
-    localStorage.setItem('livora_currency', currency);
-    localStorage.setItem('livora_sys_sounds', String(sysSounds));
-    localStorage.setItem('livora_alert_offline', String(alertOffline));
-    localStorage.setItem('livora_alert_battery', String(alertBattery));
+    localStorage.setItem('smartify_home_name', homeName);
+    localStorage.setItem('smartify_time_format', timeFormat);
+    localStorage.setItem('smartify_primary_dash', primaryDashboard);
+    localStorage.setItem('smartify_energy_rate', energyRate);
+    localStorage.setItem('smartify_currency', currency);
+    localStorage.setItem('smartify_sys_sounds', String(sysSounds));
+    localStorage.setItem('smartify_alert_offline', String(alertOffline));
+    localStorage.setItem('smartify_alert_battery', String(alertBattery));
 
     window.dispatchEvent(new Event('user_settings_changed'));
     
@@ -184,7 +184,7 @@ const Settings = () => {
             <div className="space-y-10 animate-fade-in">
               <div>
                 <h2 className="font-display text-xl font-semibold mb-1">Account & Profile</h2>
-                <p className="text-sm text-muted-foreground">Manage your personal identity on the tablet.</p>
+                <p className="text-sm text-muted-foreground">Manage your personal information and security credentials.</p>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-6">
@@ -298,16 +298,16 @@ const Settings = () => {
                   <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Weather Location</label>
                   <p className="text-xs text-muted-foreground ml-1 mb-3">Enter your exact coordinates for weather and sun events.</p>
                 </div>
-                
+
                 <div className="space-y-3">
                   <label className="text-[10px] uppercase tracking-wider text-muted-foreground ml-1">City Name (Display)</label>
                   <div className="relative max-w-md">
                     <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input 
-                      value={cityName} 
-                      onChange={e => setCityName(e.target.value)} 
-                      placeholder="e.g. Szczecin" 
-                      className="pl-10 bg-background/50 border-white/10 rounded-xl text-base h-12 focus-visible:ring-1" 
+                    <Input
+                      value={cityName}
+                      onChange={e => setCityName(e.target.value)}
+                      placeholder="e.g. Szczecin"
+                      className="pl-10 bg-background/50 border-white/10 rounded-xl text-base h-12 focus-visible:ring-1"
                     />
                   </div>
                 </div>
@@ -315,20 +315,20 @@ const Settings = () => {
                 <div className="grid grid-cols-2 gap-4 max-w-md">
                   <div className="space-y-1.5">
                     <label className="text-[10px] uppercase tracking-wider text-muted-foreground ml-1">Latitude</label>
-                    <Input 
-                      value={lat} 
-                      onChange={e => setLat(e.target.value)} 
-                      placeholder="e.g. 53.4289" 
-                      className="bg-background/50 border-white/10 rounded-xl text-base h-12 focus-visible:ring-1 font-mono" 
+                    <Input
+                      value={lat}
+                      onChange={e => setLat(e.target.value)}
+                      placeholder="e.g. 53.4289"
+                      className="bg-background/50 border-white/10 rounded-xl text-base h-12 focus-visible:ring-1 font-mono"
                     />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] uppercase tracking-wider text-muted-foreground ml-1">Longitude</label>
-                    <Input 
-                      value={lon} 
-                      onChange={e => setLon(e.target.value)} 
-                      placeholder="e.g. 14.553" 
-                      className="bg-background/50 border-white/10 rounded-xl text-base h-12 focus-visible:ring-1 font-mono" 
+                    <Input
+                      value={lon}
+                      onChange={e => setLon(e.target.value)}
+                      placeholder="e.g. 14.553"
+                      className="bg-background/50 border-white/10 rounded-xl text-base h-12 focus-visible:ring-1 font-mono"
                     />
                   </div>
                 </div>
@@ -418,15 +418,15 @@ const Settings = () => {
               </div>
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 rounded-2xl bg-background/40 border border-white/5">
-                  <div><p className="text-sm font-semibold">System Sounds</p><p className="text-xs text-muted-foreground">Play beeping sounds on alarms.</p></div>
+                  <div><p className="text-sm font-semibold">Audible Alarms</p><p className="text-xs text-muted-foreground">Play an audio alert when a safety sensor is triggered.</p></div>
                   <Switch checked={sysSounds} onCheckedChange={setSysSounds} />
                 </div>
                 <div className="flex items-center justify-between p-4 rounded-2xl bg-background/40 border border-white/5">
-                  <div><p className="text-sm font-semibold">Offline Alerts</p><p className="text-xs text-muted-foreground">Notify when a device drops off.</p></div>
+                  <div><p className="text-sm font-semibold">Offline Alerts</p><p className="text-xs text-muted-foreground">Notify when a device loses network connection.</p></div>
                   <Switch checked={alertOffline} onCheckedChange={setAlertOffline} />
                 </div>
                 <div className="flex items-center justify-between p-4 rounded-2xl bg-background/40 border border-white/5">
-                  <div><p className="text-sm font-semibold">Low Battery Warnings</p><p className="text-xs text-muted-foreground">Alert when sensor battery is below 15%.</p></div>
+                  <div><p className="text-sm font-semibold">Low Battery Warnings</p><p className="text-xs text-muted-foreground">Notify when a device's battery falls below 15%.</p></div>
                   <Switch checked={alertBattery} onCheckedChange={setAlertBattery} />
                 </div>
               </div>

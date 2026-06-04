@@ -34,7 +34,7 @@ export function DeviceTile({
         "p-5 flex flex-col gap-4 min-h-[180px] transition-all duration-300",
         onClick && "cursor-pointer",
         accent && enabled && !offline && "ring-1 ring-accent/40",
-        selected && "ring-2 ring-primary/60 shadow-lg shadow-primary/10",
+        selected && "ring-2 ring-primary/60",
         offline && "opacity-60",
         className,
       )}

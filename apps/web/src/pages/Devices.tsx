@@ -5,9 +5,9 @@ import {
   Plug, Lock, Unlock, Timer, Zap, Activity, BatteryCharging, Minus, Plus, WifiOff,
   ShieldCheck, ShieldAlert, Battery, BatteryLow, Droplets, PlusCircle, HelpCircle
 } from "lucide-react";
-import { GlassCard } from "@/components/livora/GlassCard";
-import { DeviceTile } from "@/components/livora/DeviceTile";
-import { ColorWheel } from "@/components/livora/ColorWheel";
+import { GlassCard } from "@/components/smartify/GlassCard";
+import { DeviceTile } from "@/components/smartify/DeviceTile";
+import { ColorWheel } from "@/components/smartify/ColorWheel";
 import { cn } from "@/lib/utils";
 import { useDevices } from "@/hooks/use-devices";
 import { useWebSockets } from "@/hooks/use-websockets";
@@ -218,7 +218,7 @@ const Devices = () => {
     try {
       await axios.post(`${API_URL}/devices/${friendlyName}/set`, payload);
     } catch (error) {
-      toast.error(`Błąd sterowania: ${friendlyName}`);
+      toast.error(`Control error, ${friendlyName}`);
     }
   };
 
@@ -283,7 +283,7 @@ const Devices = () => {
 
     debounceRefs.current[key] = setTimeout(() => {
       axios.post(`${API_URL}/devices/${friendlyName}/set`, { state: 'TOGGLE' })
-        .catch(() => toast.error(`Błąd sterowania: ${friendlyName}`));
+        .catch(() => toast.error(`Control error, ${friendlyName}`));
     }, 250);
   };
 
@@ -297,7 +297,7 @@ const Devices = () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
       if (selectedDevice?.friendly_name === friendlyName) setSelectedDevice(null);
     } catch (error) {
-      toast.error("Nie udało się usunąć urządzenia");
+      toast.error("Failed to remove device");
     }
   };
 
@@ -327,7 +327,7 @@ const Devices = () => {
          setSelectedDevice({ ...selectedDevice, friendly_name: finalName });
       }
     } catch (error) {
-      toast.error("Nie udało się zmienić nazwy urządzenia");
+      toast.error("Failed to rename device");
     }
   };
 
@@ -455,9 +455,9 @@ const Devices = () => {
               key={r.id || 'all'}
               onClick={() => { setActiveRoomId(r.id); setSelectedDevice(null); }}
               className={cn(
-                "shrink-0 flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-medium transition-colors min-w-[120px] lg:w-full",
+                "shrink-0 flex items-center justify-between rounded-2xl px-4 h-11 text-sm font-medium transition-colors min-w-[120px] lg:w-full",
                 r.id === activeRoomId
-                  ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
+                  ? "bg-primary text-primary-foreground shadow-md"
                   : "text-foreground/70 hover:text-foreground hover:bg-muted/60"
               )}
             >
@@ -808,7 +808,7 @@ const Devices = () => {
                       const temp = selectedData.temperature ?? 0;
                       const isCold = temp < 20;
                       const heroColor = isCold ? "#3b82f6" : "#f97316";
-                      const glowFilter = isCold ? "drop-shadow(0 0 16px rgba(59, 130, 246, 0.5))" : "drop-shadow(0 0 16px rgba(249, 115, 22, 0.5))";
+                      const glowFilter = "none";
 
                       return (
                         <>
@@ -881,7 +881,7 @@ const Devices = () => {
                           </p>
                         </div>
                         <div className="relative z-10">
-                          <Plug className="h-20 w-20 transition-all duration-500" strokeWidth={1.2} style={{ color: isOn ? "#3b82f6" : "hsl(var(--muted-foreground))", filter: isOn ? "drop-shadow(0 0 16px rgba(59, 130, 246, 0.5))" : "none" }} />
+                          <Plug className="h-20 w-20 transition-all duration-500" strokeWidth={1.2} style={{ color: isOn ? "#3b82f6" : "hsl(var(--muted-foreground))", filter: "none" }} />
                         </div>
                       </div>
                     )}
