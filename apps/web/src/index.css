@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Smartify design system — liquid glass on white. All colors HSL. */
+/* Livora design system — liquid glass on white. All colors HSL. */
 
 @layer base {
   :root {
@@ -186,13 +186,13 @@
     background: radial-gradient(circle, hsl(var(--brand-sky) / 0.6), transparent 70%);
   }
   
-  /* Prawy dolny róg - głębszy, stalowy błękit, zamykający kompozycję */
+  /* Prawy dolny róg - ten sam niebieski co lewy górny, dla spójnej kompozycji w obu motywach */
   .ambient-bg::after {
     width: 900px;
     height: 900px;
     bottom: -300px;
     right: -200px;
     filter: blur(160px);
-    background: radial-gradient(circle, hsl(var(--brand-steel) / 0.4), transparent 70%);
+    background: radial-gradient(circle, hsl(var(--brand-sky) / 0.6), transparent 70%);
   }
 }

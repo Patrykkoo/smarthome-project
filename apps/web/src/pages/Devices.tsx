@@ -449,13 +449,15 @@ const Devices = () => {
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         
-        <GlassCard className="p-2 lg:p-3 w-full lg:w-[220px] shrink-0 flex flex-row lg:flex-col gap-2 overflow-x-auto no-scrollbar items-center lg:items-stretch">
+        <GlassCard className="p-2 lg:p-3 w-full lg:w-[220px] shrink-0 flex flex-row lg:flex-col gap-2 items-center lg:items-stretch">
+          {/* Pokoje przewijają się poziomo (wąskie okno); przycisk Add room zostaje przyklejony po prawej */}
+          <div className="flex-1 min-w-0 flex flex-row lg:flex-col gap-2 overflow-x-auto lg:overflow-visible no-scrollbar items-center lg:items-stretch lg:w-full">
           {displayRooms.map((r) => (
             <button
               key={r.id || 'all'}
               onClick={() => { setActiveRoomId(r.id); setSelectedDevice(null); }}
               className={cn(
-                "shrink-0 flex items-center justify-between rounded-2xl px-4 h-11 text-sm font-medium transition-colors min-w-[120px] lg:w-full",
+                "shrink-0 flex items-center justify-between gap-3 rounded-2xl px-4 h-11 text-sm font-medium transition-colors min-w-[120px] lg:w-full",
                 r.id === activeRoomId
                   ? "bg-primary text-primary-foreground shadow-md"
                   : "text-foreground/70 hover:text-foreground hover:bg-muted/60"
@@ -485,8 +487,9 @@ const Devices = () => {
               </div>
             </button>
           ))}
+          </div>
 
-          <div className="w-px h-8 bg-border/40 mx-1 lg:hidden" />
+          <div className="w-px h-8 bg-border/40 mx-1 lg:hidden shrink-0" />
           <div className="h-px w-full bg-border/40 my-1 hidden lg:block" />
 
           <button
