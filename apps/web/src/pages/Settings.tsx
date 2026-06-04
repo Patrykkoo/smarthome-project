@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { User, Palette, Zap, Bell, Server, Check, Image as ImageIcon, LogOut, Key, UserPlus, Trash2 } from "lucide-react";
+import { User, Palette, Zap, Bell, Server, Check, Image as ImageIcon, LogOut, Key, UserPlus, Trash2, MapPin } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,6 @@ import { cn } from "@/lib/utils";
 import { auth, User as AuthUser } from "@/lib/auth";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "@/hooks/use-theme";
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 const SECTIONS = [
   { id: "account", label: "Account & Profile", icon: User },
@@ -44,21 +42,22 @@ const Settings = () => {
   const [userName, setUserName] = useState(currentUser?.username || '');
   const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatar || '');
 
-  // HASŁO -> PIN
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-
   const [inviteUsername, setInviteUsername] = useState("");
 
   const [homeName, setHomeName] = useState(localStorage.getItem('livora_home_name') || 'My Smart Home');
   const [timeFormat, setTimeFormat] = useState(localStorage.getItem('livora_time_format') || '24h');
-  
   const [primaryDashboard, setPrimaryDashboard] = useState(localStorage.getItem('livora_primary_dash') || '/');
   const [energyRate, setEnergyRate] = useState(localStorage.getItem('livora_energy_rate') || '1.15');
   const [currency, setCurrency] = useState(localStorage.getItem('livora_currency') || 'PLN');
   const [sysSounds, setSysSounds] = useState(localStorage.getItem('livora_sys_sounds') !== 'false');
   const [alertOffline, setAlertOffline] = useState(localStorage.getItem('livora_alert_offline') !== 'false');
   const [alertBattery, setAlertBattery] = useState(localStorage.getItem('livora_alert_battery') !== 'false');
+
+  const [cityName, setCityName] = useState(localStorage.getItem('livora_location_name') || '');
+  const [lat, setLat] = useState(localStorage.getItem('livora_location_lat') || '');
+  const [lon, setLon] = useState(localStorage.getItem('livora_location_lon') || '');
 
   const handleSave = async () => {
     await auth.updateProfile({ username: userName, avatarUrl: avatarUrl });
@@ -75,6 +74,16 @@ const Settings = () => {
       }
     }
     
+    if (cityName && lat && lon) {
+      localStorage.setItem('livora_location_name', cityName);
+      localStorage.setItem('livora_location_lat', lat);
+      localStorage.setItem('livora_location_lon', lon);
+    } else {
+      localStorage.removeItem('livora_location_name');
+      localStorage.removeItem('livora_location_lat');
+      localStorage.removeItem('livora_location_lon');
+    }
+
     localStorage.setItem('livora_home_name', homeName);
     localStorage.setItem('livora_time_format', timeFormat);
     localStorage.setItem('livora_primary_dash', primaryDashboard);
@@ -91,11 +100,14 @@ const Settings = () => {
     });
   };
 
+  // DODANE: Zmiana zdarzeń z Toasta na globalne eventy (Menu Powiadomień)
   const handleInvite = async () => {
     if (!inviteUsername.trim() || !currentUser?.homeId) return;
     const success = await auth.inviteUserToHome(inviteUsername, currentUser.homeId);
     if (success) {
-      toast.success(`${inviteUsername} was added to your home!`);
+      window.dispatchEvent(new CustomEvent('app_notification', {
+        detail: { type: 'success', title: 'New Home Member', description: `${inviteUsername} was added to your home network.` }
+      }));
       setInviteUsername("");
       await loadHomeUsers();
     } else {
@@ -105,13 +117,17 @@ const Settings = () => {
 
   const handleRemoveUser = async (userId: string) => {
     await auth.removeUserFromHome(userId);
-    toast.success("User removed from home");
+    window.dispatchEvent(new CustomEvent('app_notification', {
+        detail: { type: 'warning', title: 'Member Removed', description: `A user has been removed from your home network.` }
+    }));
     await loadHomeUsers();
   };
 
   const handleRoleChange = async (userId: string, role: string) => {
     await auth.changeUserRole(userId, role as 'owner' | 'member');
-    toast.success("User role updated");
+    window.dispatchEvent(new CustomEvent('app_notification', {
+        detail: { type: 'info', title: 'Role Updated', description: `User permissions have been modified.` }
+    }));
     await loadHomeUsers();
   };
 
@@ -136,8 +152,6 @@ const Settings = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-6 items-start mt-6">
-        
-        {/* LEWA KOLUMNA: MENU */}
         <div className="flex flex-col gap-4">
           <GlassCard className="p-3 flex flex-col gap-1 w-full">
             {SECTIONS.map((sec) => (
@@ -165,15 +179,12 @@ const Settings = () => {
           </button>
         </div>
 
-        {/* PRAWA KOLUMNA: ZAWARTOŚĆ */}
         <GlassCard className="p-6 md:p-8">
-          
-          {/* ACCOUNT & PROFILE */}
           {activeSection === "account" && (
             <div className="space-y-10 animate-fade-in">
               <div>
                 <h2 className="font-display text-xl font-semibold mb-1">Account & Profile</h2>
-                <p className="text-sm text-muted-foreground">Manage your personal identity.</p>
+                <p className="text-sm text-muted-foreground">Manage your personal identity on the tablet.</p>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-6">
@@ -198,21 +209,18 @@ const Settings = () => {
                 <Input value={userName} onChange={e => setUserName(e.target.value)} className="bg-background/50 border-white/10 rounded-xl text-base h-12 px-4 max-w-sm focus-visible:ring-1" />
               </div>
 
-              {/* SEKCJA: ZMIANA PINU */}
               <div className="space-y-4 pt-6 border-t border-border/40">
-                <h3 className="text-sm font-semibold flex items-center gap-2"><Key className="h-4 w-4" /> Change PIN</h3>
+                <h3 className="text-sm font-semibold flex items-center gap-2"><Key className="h-4 w-4" /> Change Security PIN</h3>
                 <div className="grid gap-4 sm:grid-cols-2 max-w-2xl">
-                  <Input type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} placeholder="Current PIN" className="bg-background/50 border-white/10 rounded-xl text-base h-12 px-4 focus-visible:ring-1 tracking-widest font-display" />
-                  <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="New PIN (min. 4 digits)" className="bg-background/50 border-white/10 rounded-xl text-base h-12 px-4 focus-visible:ring-1 tracking-widest font-display" />
+                  <Input type="password" maxLength={6} value={oldPassword} onChange={e => setOldPassword(e.target.value)} placeholder="Current 6-digit PIN" className="bg-background/50 border-white/10 rounded-xl text-base h-12 px-4 focus-visible:ring-1 tracking-widest font-display" />
+                  <Input type="password" maxLength={6} value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="New 6-digit PIN" className="bg-background/50 border-white/10 rounded-xl text-base h-12 px-4 focus-visible:ring-1 tracking-widest font-display" />
                 </div>
               </div>
 
-              {/* SEKCJA: UŻYTKOWNICY W DOMU */}
               <div className="space-y-4 pt-6 border-t border-border/40">
                 <h3 className="text-sm font-semibold flex items-center gap-2"><UserPlus className="h-4 w-4" /> Home Members</h3>
                 <p className="text-xs text-muted-foreground mb-4">People who have access to this smart home.</p>
                 
-                {/* Lista użytkowników */}
                 <div className="grid gap-3 max-w-2xl">
                   {homeUsers.map(u => (
                     <div key={u.id} className="flex items-center justify-between p-3 rounded-2xl bg-background/40 border border-white/5">
@@ -254,7 +262,6 @@ const Settings = () => {
                   ))}
                 </div>
 
-                {/* Dodawanie nowych (tylko dla właścicieli) */}
                 {isOwner && (
                   <div className="flex items-center gap-3 max-w-sm mt-4">
                     <Input 
@@ -275,7 +282,6 @@ const Settings = () => {
             </div>
           )}
 
-          {/* HOME SYSTEM */}
           {activeSection === "general" && (
             <div className="space-y-8 animate-fade-in">
               <div>
@@ -286,6 +292,48 @@ const Settings = () => {
                 <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Home Name</label>
                 <Input value={homeName} onChange={e => setHomeName(e.target.value)} className="bg-background/50 border-white/10 rounded-xl text-base h-12 px-4 max-w-md focus-visible:ring-1" />
               </div>
+
+              <div className="space-y-4 pt-4 border-t border-border/40">
+                <div>
+                  <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Weather Location</label>
+                  <p className="text-xs text-muted-foreground ml-1 mb-3">Enter your exact coordinates for weather and sun events.</p>
+                </div>
+                
+                <div className="space-y-3">
+                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground ml-1">City Name (Display)</label>
+                  <div className="relative max-w-md">
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input 
+                      value={cityName} 
+                      onChange={e => setCityName(e.target.value)} 
+                      placeholder="e.g. Szczecin" 
+                      className="pl-10 bg-background/50 border-white/10 rounded-xl text-base h-12 focus-visible:ring-1" 
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 max-w-md">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] uppercase tracking-wider text-muted-foreground ml-1">Latitude</label>
+                    <Input 
+                      value={lat} 
+                      onChange={e => setLat(e.target.value)} 
+                      placeholder="e.g. 53.4289" 
+                      className="bg-background/50 border-white/10 rounded-xl text-base h-12 focus-visible:ring-1 font-mono" 
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] uppercase tracking-wider text-muted-foreground ml-1">Longitude</label>
+                    <Input 
+                      value={lon} 
+                      onChange={e => setLon(e.target.value)} 
+                      placeholder="e.g. 14.553" 
+                      className="bg-background/50 border-white/10 rounded-xl text-base h-12 focus-visible:ring-1 font-mono" 
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-3 pt-4 border-t border-border/40">
                 <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1">Time Format</label>
                 <Select value={timeFormat} onValueChange={setTimeFormat}>
@@ -301,7 +349,6 @@ const Settings = () => {
             </div>
           )}
 
-          {/* APPEARANCE */}
           {activeSection === "appearance" && (
             <div className="space-y-8 animate-fade-in">
               <div>
@@ -337,7 +384,6 @@ const Settings = () => {
             </div>
           )}
 
-          {/* ENERGY */}
           {activeSection === "energy" && (
             <div className="space-y-8 animate-fade-in">
               <div>
@@ -364,7 +410,6 @@ const Settings = () => {
             </div>
           )}
 
-          {/* NOTIFICATIONS */}
           {activeSection === "notifications" && (
             <div className="space-y-8 animate-fade-in">
               <div>

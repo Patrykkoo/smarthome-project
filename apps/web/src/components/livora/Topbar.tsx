@@ -164,7 +164,6 @@ export function Topbar() {
   
   const [userName, setUserName] = useState(auth.getCurrentUser()?.username || 'Guest');
   
-  // USTAWIENIA POBIERANE Z LOCALSTORAGE
   const [homeName, setHomeName] = useState(localStorage.getItem('livora_home_name') || 'My Smart Home');
   const [sysSounds, setSysSounds] = useState(localStorage.getItem('livora_sys_sounds') !== 'false');
   const [alertOffline, setAlertOffline] = useState(localStorage.getItem('livora_alert_offline') !== 'false');
@@ -230,6 +229,16 @@ export function Topbar() {
     localStorage.setItem('livora_notifications', JSON.stringify(notifications));
   }, [notifications]);
 
+  // DODANE: Globalny nasłuchiwacz innych komponentów (Złapie eventy wysłane z Settings i Devices)
+  useEffect(() => {
+    const handleCustomAppNotification = (e: any) => {
+      const { type, title, description } = e.detail;
+      notifyAndSave(type, title, description);
+    };
+    window.addEventListener('app_notification', handleCustomAppNotification);
+    return () => window.removeEventListener('app_notification', handleCustomAppNotification);
+  }, []);
+
   useEffect(() => {
     if (devices.length > 0 && !hasInitializedStates.current) {
       devices.forEach((d: any) => {
@@ -292,12 +301,18 @@ export function Topbar() {
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isAlarmActive && sysSounds) { // ODCZYTYWANIE USTAWIEŃ DŹWIĘKU
-      const playBeep = () => {
+    if (isAlarmActive && sysSounds) { 
+      const playBeep = async () => {
         const ctx = audioCtxRef.current;
         if (!ctx) return;
-        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-        if (ctx.state === 'suspended') return;
+        
+        if (ctx.state === 'suspended') {
+          try {
+            await ctx.resume();
+          } catch (e) {
+            return;
+          }
+        }
         
         try {
           const oscillator = ctx.createOscillator();
@@ -379,10 +394,10 @@ export function Topbar() {
         } else if (isClosed && notifiedStatesRef.current.has(key)) {
           notifiedStatesRef.current.delete(key);
           cancelAlarm = true;
+          toast.dismiss(key);
         }
       }
 
-      // ODCZYTYWANIE USTAWIEŃ OFFLINE
       const isOffline = payload.state === 'OFFLINE' || payload.state === 'offline' || payload.availability === 'offline';
       const offlineKey = `${friendlyName}_offline`;
       if (isOffline && !notifiedStatesRef.current.has(offlineKey)) {
@@ -397,7 +412,6 @@ export function Topbar() {
         toast.dismiss(offlineKey);
       }
 
-      // ODCZYTYWANIE USTAWIEŃ BATERII
       if (payload.battery !== undefined) {
         const bat = Number(payload.battery);
         const batKey = `${friendlyName}_battery`;
@@ -430,7 +444,7 @@ export function Topbar() {
       socket.off('device_joined', handleDeviceJoined);
       socket.off('device_list_updated', handleListUpdate);
     };
-  }, [socket, queryClient, alertBattery, alertOffline]); // Wpięte zależności ustawień
+  }, [socket, queryClient, alertBattery, alertOffline]); 
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -485,43 +499,42 @@ export function Topbar() {
   return (
     <>
       <header className="sticky top-0 z-30 flex h-16 items-center gap-3 px-4 md:px-8">
-        <SidebarTrigger className="rounded-xl glass h-11 w-11" />
+        <SidebarTrigger className="rounded-xl glass h-11 w-11 shrink-0" />
 
-        <div className="hidden md:block flex-1">
-          <h2 className="font-display text-lg font-semibold leading-tight">Hi, {userName}</h2>
-          <p className="text-xs text-muted-foreground">
-            {/* WSTAWIONA NAZWA DOMU */}
+        <div className="hidden md:block flex-1 min-w-0">
+          <h2 className="font-display text-lg font-semibold leading-tight truncate">Hi, {userName}</h2>
+          <p className="text-xs text-muted-foreground truncate">
             {isPairing ? `Pairing active: ${formatTime(timeLeft)}` : `Welcome to ${homeName}.`}
           </p>
         </div>
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-2 sm:gap-3">
           <button
             onClick={togglePairing}
             className={cn(
-              "flex items-center justify-between px-3 h-11 rounded-full transition-all duration-300 w-fit min-w-[150px]",
+              "flex items-center justify-center h-11 rounded-full transition-all duration-300 shrink-0",
               isPairing 
-                ? "bg-primary text-primary-foreground shadow-md" 
-                : "glass text-foreground hover:bg-background/60"
+                ? "bg-primary text-primary-foreground shadow-md px-3 min-w-[120px] sm:min-w-[150px]" 
+                : "glass text-foreground hover:bg-background/60 w-11 px-0 sm:w-auto sm:px-3 sm:min-w-[150px]"
             )}
           >
             {isPairing ? (
               <>
                 <div className="flex items-center gap-2">
-                  <span className="relative flex h-2 w-2">
+                  <span className="relative flex h-2 w-2 shrink-0">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
-                  <span className="text-sm font-medium pl-1">Searching</span>
+                  <span className="text-sm font-medium pl-1 hidden sm:inline">Searching</span>
                 </div>
-                <span className="text-xs font-bold bg-background/20 text-primary-foreground px-2 py-0.5 rounded-md tabular-nums ml-3">
+                <span className="text-xs font-bold bg-background/20 text-primary-foreground px-2 py-0.5 rounded-md tabular-nums sm:ml-3">
                   {formatTime(timeLeft)}
                 </span>
               </>
             ) : (
-              <div className="flex items-center gap-2 mx-auto">
-                <Plus className="h-4 w-4 shrink-0" />
-                <span className="text-sm font-medium text-muted-foreground">Pairing Mode</span>
+              <div className="flex items-center justify-center gap-2 mx-auto">
+                <Plus className="h-5 w-5 sm:h-4 sm:w-4 shrink-0" />
+                <span className="text-sm font-medium text-muted-foreground hidden sm:inline">Pairing Mode</span>
               </div>
             )}
           </button>
@@ -529,12 +542,12 @@ export function Topbar() {
           <PresenceToggle 
             initialMode={presenceMode}
             onChange={handlePresenceChange}
-            className="hidden sm:flex" 
+            className="shrink-0"
           />
 
           <button 
             onClick={() => setIsNotificationsOpen(true)}
-            className="relative h-11 w-11 rounded-full glass flex items-center justify-center transition-transform active:scale-95 focus-visible:ring-0 outline-none"
+            className="relative h-11 w-11 shrink-0 rounded-full glass flex items-center justify-center transition-transform active:scale-95 focus-visible:ring-0 outline-none"
           >
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
@@ -544,7 +557,6 @@ export function Topbar() {
         </div>
       </header>
 
-      {/* PRAWY PANEL POWIADOMIEŃ */}
       <div 
         className={cn("fixed inset-0 z-40 bg-background/60 backdrop-blur-sm transition-opacity duration-500", isNotificationsOpen ? "opacity-100" : "opacity-0 pointer-events-none")}
         onClick={() => setIsNotificationsOpen(false)}

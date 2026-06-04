@@ -19,7 +19,8 @@ import {
   CloudLightning,
   CloudSnow,
   TrendingDown,
-  TrendingUp
+  TrendingUp,
+  MapPinOff
 } from "lucide-react";
 import { GlassCard } from "@/components/livora/GlassCard";
 import { DeviceTile } from "@/components/livora/DeviceTile";
@@ -85,6 +86,8 @@ const Dashboard = () => {
   const [activeScene, setActiveScene] = useState<string | null>(null);
   const [activeRoomName, setActiveRoomName] = useState("All");
   const [currentTime, setCurrentTime] = useState(new Date());
+  
+  const [settingsTrigger, setSettingsTrigger] = useState(0);
 
   const { data: devices = [], isLoading: isLoadingDevices } = useDevices();
   const { data: rooms = [] } = useQuery({
@@ -95,7 +98,6 @@ const Dashboard = () => {
     }
   });
 
-  // POBIERANIE SCEN Z BAZY DANYCH
   const { data: scenes = [] } = useQuery({
     queryKey: ['scenes'],
     queryFn: async () => {
@@ -104,11 +106,29 @@ const Dashboard = () => {
     }
   });
 
+  // POGODA CZYTAJĄCA Z RĘCZNYCH KOORDYNATÓW
   const { data: weatherData } = useQuery({
-    queryKey: ['weather'],
+    queryKey: ['weather', settingsTrigger],
     queryFn: async () => {
-      const res = await axios.get('https://api.open-meteo.com/v1/forecast?latitude=53.4289&longitude=14.553&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code&daily=sunrise,sunset&timezone=auto');
-      return res.data;
+      try {
+        const lat = localStorage.getItem('livora_location_lat');
+        const lon = localStorage.getItem('livora_location_lon');
+        const locName = localStorage.getItem('livora_location_name');
+
+        if (!lat || !lon || !locName) {
+          return null; // Jeśli nic nie wpisano, po prostu zwracamy null (Wyświetli "Location not set")
+        }
+
+        // Bezpośrednie zapytanie z koordynatami, omijamy wszelkiego rodzaju wyszukiwarki miast
+        const res = await axios.get(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code&daily=sunrise,sunset&timezone=auto`);
+        
+        if (!res.data || !res.data.current) throw new Error("Invalid weather payload");
+
+        return { ...res.data, locationName: locName };
+      } catch (error) {
+        console.error("Weather data fetch error", error);
+        return null;
+      }
     },
     refetchInterval: 15 * 60 * 1000 
   });
@@ -131,6 +151,13 @@ const Dashboard = () => {
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Odśwież widżet pogody od razu, gdy klikniesz "Save" w Settings
+  useEffect(() => {
+    const handleSettingsChange = () => setSettingsTrigger(prev => prev + 1);
+    window.addEventListener('user_settings_changed', handleSettingsChange);
+    return () => window.removeEventListener('user_settings_changed', handleSettingsChange);
   }, []);
 
   useEffect(() => {
@@ -232,7 +259,6 @@ const Dashboard = () => {
     }, 250);
   };
 
-  // OBSŁUGA WYWOŁYWANIA SCEN Z BAZY DANYCH
   const handleSceneTrigger = async (sceneName: string) => {
     setActiveScene(sceneName);
     const scene = scenes.find((s: any) => s.name === sceneName);
@@ -263,9 +289,10 @@ const Dashboard = () => {
     ? devices 
     : devices.filter((d: any) => (d.room_name || "Unassigned") === activeRoomName);
 
-  let weatherTemp = "--", weatherFeels = "--", weatherHum = "--", WeatherIcon = Cloud, weatherLabel = "Loading data...", sunLabel = "Sunset", sunTimeStr = "--:--", sunSubLabel = "Loading...", SunEventIcon = Sunset, locationName = "Szczecin";
+  let weatherTemp = "--", weatherFeels = "--", weatherHum = "--", WeatherIcon = MapPinOff, weatherLabel = "Location not set", sunLabel = "Sun Events", sunTimeStr = "--:--", sunSubLabel = "Update in Settings", SunEventIcon = Sun, locationName = "Set location in settings";
   
   if (weatherData && weatherData.current) {
+    locationName = weatherData.locationName;
     weatherTemp = weatherData.current.temperature_2m.toFixed(1);
     weatherFeels = weatherData.current.apparent_temperature.toFixed(1);
     weatherHum = weatherData.current.relative_humidity_2m;
@@ -458,11 +485,11 @@ const Dashboard = () => {
           </div>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
           {isLoadingDevices ? (
-            <p className="col-span-4 text-center py-10 text-muted-foreground">Loading devices...</p>
+            <p className="col-span-full text-center py-10 text-muted-foreground">Loading devices...</p>
           ) : filteredDevices.length === 0 ? (
-             <p className="col-span-4 text-center py-10 text-muted-foreground">No devices found in {activeRoomName}.</p>
+             <p className="col-span-full text-center py-10 text-muted-foreground">No devices found in {activeRoomName}.</p>
           ) : (
             filteredDevices.map((d: any) => {
               const dData = localLiveData[d.friendly_name] || {};

@@ -17,11 +17,17 @@ export default function Login() {
       
       if (newPin.length === 6) {
         try {
-          const user = await auth.kioskLogin(newPin);
-          toast.success(`Welcome to Smartify, ${user.username}!`);
+          await auth.kioskLogin(newPin);
+          // Powiadomienie powitalne zostało całkowicie usunięte
           navigate("/");
-        } catch (error) {
-          toast.error("Incorrect PIN");
+        } catch (error: any) {
+          if (error.message === "Network Error" || error.code === "ERR_NETWORK") {
+            toast.error("Network Error", { description: "Cannot connect to the local API. Check browser security settings or IP." });
+          } else if (error.response?.status === 401) {
+            toast.error("Incorrect PIN");
+          } else {
+            toast.error("Login failed", { description: error.response?.data?.error || error.message });
+          }
           setPin("");
         }
       }
@@ -32,7 +38,6 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-background relative overflow-hidden select-none">
-      {/* GLOW Z DWÓCH STRON */}
       <div className="absolute top-[-10%] left-[-10%] w-[60vw] h-[60vw] max-w-[600px] max-h-[600px] bg-primary/20 rounded-full blur-[120px] pointer-events-none opacity-60" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[60vw] h-[60vw] max-w-[600px] max-h-[600px] bg-primary/20 rounded-full blur-[120px] pointer-events-none opacity-60" />
       

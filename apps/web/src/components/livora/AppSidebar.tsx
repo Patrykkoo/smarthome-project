@@ -24,8 +24,11 @@ const items = [
 ];
 
 export function AppSidebar() {
-  const { state } = useSidebar();
-  const collapsed = state === "collapsed";
+  const { state, setOpen, isMobile } = useSidebar();
+  
+  // ZMIANA: Na urządzeniach mobilnych (isMobile === true) Sidebar działa jako nakładka (Sheet). 
+  // Chcemy, aby w nakładce zawsze pokazywały się pełne nazwy przycisków, a nie tylko ikony.
+  const collapsed = state === "collapsed" && !isMobile;
   
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(auth.getCurrentUser());
 
@@ -39,17 +42,35 @@ export function AppSidebar() {
     };
   }, []);
 
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 1280px)');
+    
+    const handleMediaChange = (e: MediaQueryListEvent | MediaQueryList) => {
+      if (e.matches) {
+        setOpen(false); 
+      } else {
+        setOpen(true);  
+      }
+    };
+
+    handleMediaChange(mediaQuery);
+    mediaQuery.addEventListener('change', handleMediaChange);
+    return () => mediaQuery.removeEventListener('change', handleMediaChange);
+  }, [setOpen]);
+
   return (
     <Sidebar 
       collapsible="icon" 
-      // ZMIANA: Dodano "data-[state=collapsed]:mr-6" oraz animację marginesu
-      className="border-r border-border/30 data-[state=collapsed]:mr-6 transition-[margin] duration-200 ease-linear"
+      // ZMIANA: Usuwamy mr-6 na urządzeniach mobilnych, aby nakładka nie "pchała" ekranu.
+      className={cn(
+        "border-r border-border/30 transition-[margin] duration-200 ease-linear",
+        !isMobile && "data-[state=collapsed]:mr-6"
+      )}
       style={{ 
-        "--sidebar-width": "16.5rem",
+        "--sidebar-width": "16rem",
         "--sidebar-width-icon": "4.5rem" 
       } as React.CSSProperties}
     >
-      {/* NAGŁÓWEK (Logo) */}
       <SidebarHeader className={cn("py-6 transition-all", collapsed ? "px-0 flex items-center justify-center" : "px-4")}>
         <NavLink to="/" className={cn("flex items-center outline-none w-full", collapsed ? "justify-center" : "gap-3")}>
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md">
@@ -64,29 +85,23 @@ export function AppSidebar() {
         </NavLink>
       </SidebarHeader>
 
-      {/* ZAWARTOŚĆ GŁÓWNEGO MENU */}
       <SidebarContent className={cn("transition-all", collapsed ? "px-0 mt-2" : "px-4 mt-0")}>
         <SidebarGroup>
           <SidebarGroupContent>
-            <SidebarMenu className="gap-2">
+            <SidebarMenu className="w-full flex flex-col gap-2">
               {items.map((item) => (
-                <SidebarMenuItem key={item.title}>
+                <SidebarMenuItem key={item.title} className="w-full">
                   <SidebarMenuButton 
                     asChild 
                     tooltip={item.title} 
-                    className={cn(
-                      "p-0 !bg-transparent hover:!bg-transparent transition-all",
-                      collapsed ? "h-12 w-12 mx-auto" : "h-auto w-full"
-                    )}
+                    className={cn("rounded-2xl transition-all p-0 !bg-transparent hover:!bg-transparent", collapsed ? "!h-14 !w-14 flex justify-center mx-auto" : "!h-14 w-full")}
                   >
                     <NavLink
                       to={item.url}
                       end={item.url === "/"}
                       className={cn(
-                        "flex items-center text-sm font-medium text-foreground/70 active:scale-[0.98] transition-all outline-none rounded-2xl",
-                        collapsed 
-                          ? "justify-center w-full h-full hover:bg-muted/30" 
-                          : "gap-3 px-4 py-3 w-full hover:bg-muted/30"
+                        "flex items-center text-sm font-medium text-foreground/70 active:scale-95 transition-transform outline-none w-full h-full rounded-2xl",
+                        collapsed ? "justify-center hover:bg-muted/30" : "gap-4 px-4 hover:bg-muted/30"
                       )}
                       activeClassName="!bg-primary !text-primary-foreground shadow-md hover:!bg-primary"
                     >
@@ -101,25 +116,19 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* STOPKA (Ustawienia + Awatar) */}
       <SidebarFooter className={cn("transition-all", collapsed ? "px-0 pb-6 flex flex-col items-center gap-4" : "p-4 pb-6")}>
-        <SidebarMenu>
-          <SidebarMenuItem>
+        <SidebarMenu className="w-full">
+          <SidebarMenuItem className="w-full">
             <SidebarMenuButton 
               asChild 
               tooltip="Settings" 
-              className={cn(
-                "p-0 !bg-transparent hover:!bg-transparent transition-all",
-                collapsed ? "h-12 w-12 mx-auto" : "h-auto w-full"
-              )}
+              className={cn("rounded-2xl transition-all p-0 !bg-transparent hover:!bg-transparent", collapsed ? "!h-14 !w-14 flex justify-center mx-auto" : "!h-14 w-full")}
             >
               <NavLink
                 to="/settings"
                 className={cn(
-                  "flex items-center text-sm font-medium text-foreground/70 active:scale-[0.98] transition-all outline-none rounded-2xl",
-                  collapsed 
-                    ? "justify-center w-full h-full hover:bg-muted/30" 
-                    : "gap-3 px-4 py-3 w-full hover:bg-muted/30"
+                  "flex items-center text-sm font-medium text-foreground/70 active:scale-95 transition-transform outline-none w-full h-full rounded-2xl",
+                  collapsed ? "justify-center hover:bg-muted/30" : "gap-4 px-4 hover:bg-muted/30"
                 )}
                 activeClassName="!bg-primary !text-primary-foreground shadow-md hover:!bg-primary"
               >
@@ -136,8 +145,8 @@ export function AppSidebar() {
             collapsed ? "justify-center w-full" : "mt-2 gap-3 rounded-2xl glass p-3 w-full border border-white/5"
           )}>
             <div className={cn(
-              "flex shrink-0 items-center justify-center bg-primary/10 overflow-hidden font-display font-semibold uppercase text-primary border border-primary/20 shadow-sm rounded-xl",
-              collapsed ? "h-12 w-12" : "h-10 w-10"
+              "flex shrink-0 items-center justify-center bg-primary/10 overflow-hidden font-display font-semibold uppercase text-primary border border-primary/20 shadow-sm transition-all", 
+              collapsed ? "h-12 w-12 rounded-[14px] text-lg" : "h-10 w-10 rounded-xl text-base"
             )}>
               {currentUser.avatar ? (
                 <img src={currentUser.avatar} alt="Avatar" className="w-full h-full object-cover" />

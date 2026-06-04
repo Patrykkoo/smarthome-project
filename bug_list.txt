@@ -1,17 +1,6 @@
-1. Responsywnośc na ipadzie (rozwinięty sidebar)
+1. Kolor w kółku pokazuje inny od faktycznie wybranego w zarowkach
 
-2. Kolor w kółku pokazuje inny od faktycznie wybranego w zarowkach
-
-3. Ikonki czujników i kolory dla wyrónienia działania
-
-4. Pikanie przy alarmie działa jak chce, nie znika powiadomienie od contact sensor
-
-5. Dodanie opcji w Settings do wpisania miejscowości (pokazywanie aktualnej pogody)
-
-6. Przy zwęzonym oknie nie widać trybu Home/Away, zjebany sidebar
-
-7. Niektóre powiadomienia mają inne ikonki (np. usunięcie urządzenia), nie licząc ostrzezen typu
-brak nazwy przy tworzeniu sceny
+2. Ikonki czujników i kolory dla wyrónienia działania
 
 8. Po wyjściu z zakładki Scenes znika napis Active z kafelka, nie zaznacza aktywnej sceny w quick
 scenes na dashboardzie (tez po kliknieciu i przejsciu do Scenes nie ma tego active, a przy powrocie
