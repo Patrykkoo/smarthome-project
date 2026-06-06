@@ -60,28 +60,31 @@ export function LockScreen() {
 
   return (
     <div
-      className="fixed inset-0 z-[100] bg-background text-foreground flex items-center justify-center transition-opacity duration-1000 select-none"
+      className="fixed inset-0 z-[100] bg-background text-foreground overflow-y-auto transition-opacity duration-1000 select-none"
       onClick={() => !showPad && setShowPad(true)}
     >
-      {!showPad ? (
-        <div className="flex flex-col items-center opacity-70 animate-pulse cursor-pointer relative z-10">
-          <Lock className="h-8 w-8 mb-4" />
-          <p className="text-sm uppercase tracking-widest font-semibold">System Armed</p>
-          <p className="text-xs text-muted-foreground mt-2">Tap to unlock</p>
-        </div>
-      ) : (
-        <PinPad
-          icon={Lock}
-          title="Enter PIN"
-          subtitle={error ? "Incorrect PIN" : "To disarm system"}
-          error={error}
-          pin={pin}
-          secondaryLabel="Cancel"
-          onSecondary={() => { setShowPad(false); setPin(""); setError(false); }}
-          onDigit={handleKeyPress}
-          onBackspace={() => setPin((p) => p.slice(0, -1))}
-        />
-      )}
+      {/* min-h-full + centrowanie: PIN jest wyśrodkowany, a gdy okno jest skrajnie niskie, można doscrollować bez ucinania góry */}
+      <div className="min-h-full flex items-center justify-center p-4">
+        {!showPad ? (
+          <div className="flex flex-col items-center opacity-70 animate-pulse cursor-pointer relative z-10">
+            <Lock className="h-8 w-8 mb-4" />
+            <p className="text-sm uppercase tracking-widest font-semibold">System Armed</p>
+            <p className="text-xs text-muted-foreground mt-2">Tap to unlock</p>
+          </div>
+        ) : (
+          <PinPad
+            icon={Lock}
+            title="Enter PIN"
+            subtitle={error ? "Incorrect PIN" : "To disarm system"}
+            error={error}
+            pin={pin}
+            secondaryLabel="Cancel"
+            onSecondary={() => { setShowPad(false); setPin(""); setError(false); }}
+            onDigit={handleKeyPress}
+            onBackspace={() => setPin((p) => p.slice(0, -1))}
+          />
+        )}
+      </div>
     </div>
   );
 }
