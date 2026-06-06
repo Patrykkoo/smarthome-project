@@ -31,7 +31,7 @@ export function DeviceTile({
     <GlassCard
       onClick={onClick}
       className={cn(
-        "p-5 flex flex-col gap-4 min-h-[180px] transition-all duration-300",
+        "p-5 flex flex-col gap-4 aspect-square min-h-[160px] transition-all duration-300",
         onClick && "cursor-pointer",
         accent && enabled && !offline && "ring-1 ring-accent/40",
         selected && "ring-2 ring-primary/60",

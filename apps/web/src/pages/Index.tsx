@@ -360,8 +360,8 @@ const Dashboard = () => {
   const todayKwh = energyStats?.todayKwh ? parseFloat(energyStats.todayKwh) : 0;
   const yesterdayKwh = energyStats?.yesterdayKwh ? parseFloat(energyStats.yesterdayKwh) : 0;
   const isUsageHigher = todayKwh >= yesterdayKwh;
-  const percentageDiff = yesterdayKwh > 0 
-    ? Math.abs(Math.round(((todayKwh - yesterdayKwh) / yesterdayKwh) * 100))
+  const percentageDiff = yesterdayKwh > 0
+    ? Math.min(100, Math.abs(Math.round(((todayKwh - yesterdayKwh) / yesterdayKwh) * 100)))
     : (todayKwh > 0 ? 100 : 0);
 
   const sparklineData = energyStats?.history60m && energyStats.history60m.length > 0 

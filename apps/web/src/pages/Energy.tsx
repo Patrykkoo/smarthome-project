@@ -115,7 +115,7 @@ const Energy = () => {
   const todayKwh = energyStats?.todayKwh ? parseFloat(energyStats.todayKwh) : 0;
   const yesterdayKwh = energyStats?.yesterdayKwh ? parseFloat(energyStats.yesterdayKwh) : 0;
   const isUsageHigher = todayKwh >= yesterdayKwh;
-  const percentageDiff = yesterdayKwh > 0 ? Math.abs(Math.round(((todayKwh - yesterdayKwh) / yesterdayKwh) * 100)) : (todayKwh > 0 ? 100 : 0);
+  const percentageDiff = yesterdayKwh > 0 ? Math.min(100, Math.abs(Math.round(((todayKwh - yesterdayKwh) / yesterdayKwh) * 100))) : (todayKwh > 0 ? 100 : 0);
 
   const fallbackSparkline = useMemo(() => {
     let lastVal = currentTotalPower || 100;

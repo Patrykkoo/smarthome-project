@@ -501,9 +501,9 @@ const Devices = () => {
           </button>
         </GlassCard>
 
-        <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-[1fr_320px] xl:grid-cols-[1fr_380px] gap-6 items-start">
+        <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-[1fr_320px] lg:grid-cols-[1fr_360px] xl:grid-cols-[1fr_400px] gap-6 items-start">
           
-          <div className="grid grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4 content-start">
+          <div className="grid grid-cols-2 xl:grid-cols-3 gap-4 content-start">
             {isLoadingDevices || isLoadingRooms ? (
               <p className="col-span-full text-center py-10 text-muted-foreground">Loading devices...</p>
             ) : filteredDevices.length === 0 ? (
@@ -617,7 +617,7 @@ const Devices = () => {
           </div>
 
           {selectedDevice ? (
-            <GlassCard variant="strong" className="p-6 h-fit space-y-6 flex flex-col lg:col-span-2 xl:col-span-1">
+            <GlassCard variant="strong" className="p-6 h-fit space-y-6 flex flex-col">
               
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">

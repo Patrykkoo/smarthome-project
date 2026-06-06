@@ -94,14 +94,14 @@ export function AppSidebar() {
                   <SidebarMenuButton 
                     asChild 
                     tooltip={item.title} 
-                    className={cn("rounded-2xl transition-all p-0 !bg-transparent hover:!bg-transparent", collapsed ? "!h-14 !w-14 flex justify-center mx-auto" : "!h-14 w-full")}
+                    className={cn("rounded-2xl transition-all", collapsed ? "!h-10 !w-10 flex items-center justify-center mx-auto bg-muted/60 hover:bg-muted shadow-sm" : "!h-14 w-full p-0 !bg-transparent hover:!bg-transparent")}
                   >
                     <NavLink
                       to={item.url}
                       end={item.url === "/"}
                       className={cn(
                         "flex items-center text-sm font-medium text-foreground/70 active:scale-95 transition-transform outline-none w-full h-full rounded-2xl",
-                        collapsed ? "justify-center hover:bg-muted/30" : "gap-3 px-3 hover:bg-muted/30"
+                        collapsed ? "justify-center" : "gap-3 px-3 hover:bg-muted/30"
                       )}
                       activeClassName="!bg-primary !text-primary-foreground shadow-md hover:!bg-primary"
                     >
@@ -122,13 +122,13 @@ export function AppSidebar() {
             <SidebarMenuButton 
               asChild 
               tooltip="Settings" 
-              className={cn("rounded-2xl transition-all p-0 !bg-transparent hover:!bg-transparent", collapsed ? "!h-14 !w-14 flex justify-center mx-auto" : "!h-14 w-full")}
+              className={cn("rounded-2xl transition-all", collapsed ? "!h-10 !w-10 flex items-center justify-center mx-auto bg-muted/60 hover:bg-muted shadow-sm" : "!h-14 w-full p-0 !bg-transparent hover:!bg-transparent")}
             >
               <NavLink
                 to="/settings"
                 className={cn(
                   "flex items-center text-sm font-medium text-foreground/70 active:scale-95 transition-transform outline-none w-full h-full rounded-2xl",
-                  collapsed ? "justify-center hover:bg-muted/30" : "gap-3 px-3 hover:bg-muted/30"
+                  collapsed ? "justify-center" : "gap-3 px-3 hover:bg-muted/30"
                 )}
                 activeClassName="!bg-primary !text-primary-foreground shadow-md hover:!bg-primary"
               >
