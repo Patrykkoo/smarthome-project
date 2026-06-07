@@ -1,11 +1,5 @@
 import { useState, useEffect } from 'react';
 
-// Współdzielony, trwały stan aktualnie aktywnej sceny.
-// Przechowujemy ID sceny w localStorage, aby podświetlenie "Active"
-// utrzymywało się między zakładkami (Dashboard <-> Scenes) oraz po odświeżeniu.
-// Synchronizacja między komponentami odbywa się przez zdarzenie okna
-// (wzorzec taki sam jak 'user_settings_changed'), a między kartami przez 'storage'.
-
 const STORAGE_KEY = 'smartify_active_scene';
 const EVENT_NAME = 'active_scene_changed';
 

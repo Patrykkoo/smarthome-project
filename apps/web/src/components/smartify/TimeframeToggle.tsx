@@ -21,7 +21,6 @@ export function TimeframeToggle({ initialMode = "week", onChange, className }: T
   const [thumb, setThumb] = useState<{ x: number; w: number }>({ x: 4, w: 0 });
   const [dragging, setDragging] = useState(false);
   
-  // Flaga śledząca, czy użytkownik dotknął przełącznika. Zastępuje opóźnienia.
   const [hasInteracted, setHasInteracted] = useState(false);
   
   const thumbRef = useRef(thumb);
@@ -56,7 +55,7 @@ export function TimeframeToggle({ initialMode = "week", onChange, className }: T
   const onPointerDown = (e: React.PointerEvent) => {
     if (!rects) return;
     e.preventDefault();
-    setHasInteracted(true); // Aktywujemy animacje dopiero po dotknięciu
+    setHasInteracted(true);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     dragState.current = { startX: e.clientX, baseX: thumbRef.current.x || rects[mode].x, moved: false };
     setDragging(true);
@@ -107,7 +106,7 @@ export function TimeframeToggle({ initialMode = "week", onChange, className }: T
 
   const selectMode = (next: TimeframeMode) => {
     if (suppressClickRef.current) return;
-    setHasInteracted(true); // Aktywujemy animacje po kliknięciu
+    setHasInteracted(true);
     if (next !== mode) {
       setMode(next);
       onChange?.(next);
@@ -127,7 +126,7 @@ export function TimeframeToggle({ initialMode = "week", onChange, className }: T
       <div 
         className={cn(
           "absolute left-0 top-1/2 h-9 rounded-full bg-primary shadow-lg z-10", 
-          !dragging && hasInteracted && "transition-all duration-300 ease-out" // Pigułka jest animowana TYLKO wtedy, gdy ktoś jej użył
+          !dragging && hasInteracted && "transition-all duration-300 ease-out"
         )} 
         style={{ 
           transform: `translate(${thumb.x}px, -50%)`, 

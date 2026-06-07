@@ -7,22 +7,16 @@ import { useActiveScene } from './use-active-scene';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
-// Tolerancje porównań dla wartości ciągłych (urządzenia raportują nieco
-// inne liczby niż wysłane, dlatego nie wymagamy idealnej zgodności).
 const TOLERANCE: Record<string, number> = {
-  brightness: 12, // skala 0..254
-  color_temp: 25, // miredy
+  brightness: 12,
+  color_temp: 25,
 };
 
 const isOfflinePayload = (p: any) =>
   p?.state === 'OFFLINE' || p?.state === 'offline' || p?.availability === 'offline';
 
-// Czy pojedyncza właściwość urządzenia nadal odpowiada temu, co ustawiła scena.
 const valueMatches = (key: string, sceneVal: any, liveVal: any): boolean => {
-  // Brak danych na żywo -> nie zrywamy sceny (zakładamy zgodność).
   if (liveVal === undefined || liveVal === null) return true;
-
-  // color_mode to pole pomocnicze, nie traktujemy go jako "zerwania".
   if (key === 'color_mode') return true;
 
   if (key === 'state') {
@@ -36,7 +30,6 @@ const valueMatches = (key: string, sceneVal: any, liveVal: any): boolean => {
       const h2 = Number(liveVal.h);
       const s2 = Number(liveVal.s);
       if ([h1, s1, h2, s2].some(Number.isNaN)) return true;
-      // Hue jest kołowe (0..360).
       const dh = Math.min(Math.abs(h1 - h2), 360 - Math.abs(h1 - h2));
       return dh <= 12 && Math.abs(s1 - s2) <= 12;
     }
@@ -50,12 +43,9 @@ const valueMatches = (key: string, sceneVal: any, liveVal: any): boolean => {
     return Math.abs(a - b) <= TOLERANCE[key];
   }
 
-  // Domyślnie porównanie po wartości (np. child_lock).
   return String(sceneVal) === String(liveVal);
 };
 
-// Czy scena nadal "obowiązuje": każde urządzenie wskazane w scenie wciąż
-// ma stan zgodny z tym, co scena ustawiła. Urządzenia offline / bez danych pomijamy.
 const sceneStillHolds = (actions: any[], live: Record<string, any>): boolean => {
   for (const action of actions || []) {
     const payload = action?.payload;
@@ -72,15 +62,6 @@ const sceneStillHolds = (actions: any[], live: Record<string, any>): boolean => 
   return true;
 };
 
-/**
- * Globalny strażnik aktywnej sceny.
- *
- * Pilnuje, czy scena oznaczona jako "Active" nadal obowiązuje. Gdy ktokolwiek
- * (na dowolnej stronie) zmieni urządzenie należące do sceny tak, że jego stan
- * przestaje pasować do tego, co scena ustawiła — znacznik "Active" jest czyszczony.
- *
- * Montowany raz w AppLayout, dzięki czemu działa niezależnie od bieżącego widoku.
- */
 export const useSceneWatcher = () => {
   const { socket } = useWebSockets();
   const { data: devices = [] } = useDevices();
@@ -94,13 +75,10 @@ export const useSceneWatcher = () => {
     },
   });
 
-  // Żywa migawka stanów urządzeń: friendly_name -> scalony payload.
   const liveRef = useRef<Record<string, any>>({});
-  // Okno karencji po aktywacji sceny – urządzenia potrzebują chwili na zastosowanie zmian.
   const graceUntilRef = useRef(0);
   const isFirstActivationEffect = useRef(true);
 
-  // Refy z aktualnymi wartościami, by domknięcia w nasłuchach nie były nieświeże.
   const activeSceneIdRef = useRef<number | null>(activeSceneId);
   const scenesRef = useRef<any[]>(scenes);
   const setActiveSceneRef = useRef(setActiveScene);
@@ -108,9 +86,6 @@ export const useSceneWatcher = () => {
   scenesRef.current = scenes;
   setActiveSceneRef.current = setActiveScene;
 
-  // Po każdej (świeżej) aktywacji sceny dajemy urządzeniom 5 s na reakcję.
-  // Pomijamy pierwszy przebieg, by przywrócona z localStorage scena była
-  // od razu zweryfikowana względem realnego stanu urządzeń.
   useEffect(() => {
     if (isFirstActivationEffect.current) {
       isFirstActivationEffect.current = false;
@@ -125,14 +100,13 @@ export const useSceneWatcher = () => {
     if (Date.now() < graceUntilRef.current) return;
 
     const scene = scenesRef.current.find((s: any) => s.id === id);
-    if (!scene) return; // Scena usunięta – czyszczeniem zajmuje się strona Scenes.
+    if (!scene) return;
 
     if (!sceneStillHolds(scene.actions, liveRef.current)) {
       setActiveSceneRef.current(null);
     }
   };
 
-  // Migawka z danych zapytania o urządzenia (start + każde odświeżenie listy).
   useEffect(() => {
     devices.forEach((d: any) => {
       if (d.last_payload) {
@@ -143,10 +117,8 @@ export const useSceneWatcher = () => {
       }
     });
     evaluate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [devices]);
 
-  // Reakcja na zmiany na żywo (Socket.IO).
   useEffect(() => {
     if (!socket) return;
     const handleUpdate = (data: any) => {
@@ -160,6 +132,5 @@ export const useSceneWatcher = () => {
     return () => {
       socket.off('device_state_update', handleUpdate);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket]);
 };

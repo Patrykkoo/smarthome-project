@@ -11,23 +11,23 @@ export const useWebSockets = () => {
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
-      console.log('🟢 [WebSocket] Połączono z backendem!');
+      console.log('[WebSocket] Connected to backend');
     });
 
     newSocket.on('device_state_update', (data) => {
-      console.log(`📡 [WebSocket] Dane z ${data.friendlyName}:`, data.payload);
+      console.log(`[WebSocket] Data from ${data.friendlyName}:`, data.payload);
     });
 
     newSocket.on('device_list_updated', () => {
-      console.log('🔄 [WebSocket] Lista urządzeń uległa zmianie (np. dodano nowe)');
+      console.log('[WebSocket] Device list has been updated');
     });
 
     newSocket.on('disconnect', () => {
-      console.log('🔴 [WebSocket] Rozłączono z backendem.');
+      console.log('[WebSocket] Disconnected from backend');
     });
 
     newSocket.on('connect_error', (err) => {
-      console.error('❌ [WebSocket] Błąd połączenia:', err.message);
+      console.error('[WebSocket] Connection error:', err.message);
     });
 
     return () => {

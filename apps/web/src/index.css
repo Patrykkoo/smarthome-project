@@ -2,11 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Livora design system — liquid glass on white. All colors HSL. */
-
 @layer base {
   :root {
-    /* Brand palette (HSL)
+    /* Colors
        #F0F1F3 → 220 13% 95%
        #C4D3D9 → 198 22% 81%
        #9DB9C8 → 203 28% 70%
@@ -48,12 +46,10 @@
 
     --radius: 1.5rem;
 
-    /* Glass tokens */
     --glass-bg: 0 0% 100%;
     --glass-border: 0 0% 100%;
     --glass-shadow: 220 30% 30%;
 
-    /* Sidebar */
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 222 8% 16%;
     --sidebar-primary: 222 8% 16%;
@@ -119,7 +115,6 @@
 }
 
 @layer components {
-  /* Liquid glass surface */
   .glass {
     background: linear-gradient(
       180deg,
@@ -128,7 +123,6 @@
     );
     backdrop-filter: blur(28px) saturate(180%);
     -webkit-backdrop-filter: blur(28px) saturate(180%);
-    /* Ramka ściszona wokół + wyrazisty inset u góry => spójny efekt "jasna góra" na każdej karcie (dark mode). */
     border: 1px solid hsl(var(--glass-border) / 0.2);
     box-shadow:
       0 1px 0 0 hsl(var(--glass-border) / 0.9) inset,
@@ -161,7 +155,6 @@
       0 12px 28px -12px hsl(var(--glass-shadow) / 0.18);
   }
 
-  /* Ambient background blobs (under glass) */
   .ambient-bg {
     position: relative;
     isolation: isolate;
@@ -176,7 +169,6 @@
     pointer-events: none;
   }
   
-  /* Lewy górny róg - czysty, jasny błękit, główny punkt świetlny */
   .ambient-bg::before {
     width: 800px;
     height: 800px;
@@ -186,7 +178,6 @@
     background: radial-gradient(circle, hsl(var(--brand-sky) / 0.6), transparent 70%);
   }
   
-  /* Prawy dolny róg - ten sam niebieski co lewy górny, dla spójnej kompozycji w obu motywach */
   .ambient-bg::after {
     width: 900px;
     height: 900px;

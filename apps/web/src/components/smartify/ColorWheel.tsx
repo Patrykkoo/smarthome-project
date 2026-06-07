@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface ColorWheelProps {
-  hue: number;        // 0..360
-  saturation: number; // 0..100
+  hue: number;
+  saturation: number;
   onChange: (hue: number, saturation: number) => void;
   className?: string;
 }
@@ -24,9 +24,6 @@ export function ColorWheel({ hue, saturation, onChange, className }: ColorWheelP
       const radius = rect.width / 2;
       const dist = Math.min(Math.sqrt(dx * dx + dy * dy), radius);
       const sat = Math.round((dist / radius) * 100);
-      // atan2 mierzy kąt od godziny 3:00 (prawa) zgodnie z ruchem wskazówek,
-      // a tło to conic-gradient liczony od godziny 12:00 (góra). Różnica to +90°.
-      // Bez tego korekcji wybrany odcień był przesunięty względem widocznego koloru.
       let angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
       angle = ((angle % 360) + 360) % 360;
       onChange(Math.round(angle), sat);
@@ -46,8 +43,6 @@ export function ColorWheel({ hue, saturation, onChange, className }: ColorWheelP
     };
   }, [dragging, handleFromEvent]);
 
-  // Lustrzane przesunięcie -90°, by kropka stała w miejscu, gdzie gradient
-  // faktycznie pokazuje dany odcień (gradient liczony od góry, ekran od prawej).
   const angleRad = ((hue - 90) * Math.PI) / 180;
   const r = saturation / 100;
   const thumbX = 50 + Math.cos(angleRad) * r * 50;

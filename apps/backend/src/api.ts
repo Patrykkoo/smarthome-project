@@ -63,7 +63,7 @@ app.get('/api/presence', (req, res) => {
 
 app.post('/api/presence', (req, res) => {
     currentPresenceMode = req.body.mode || 'home';
-    io.emit('presence_update', { mode: currentPresenceMode }); // Zmusza tablet do zablokowania się
+    io.emit('presence_update', { mode: currentPresenceMode });
     res.json({ mode: currentPresenceMode });
 });
 
@@ -511,50 +511,6 @@ app.delete('/api/automations/:id', async (req, res) => {
     }
 });
 
-// ==========================================
-// ZARZĄDZANIE KONTAMI I KIOSK LOGIN
-// ==========================================
-
-app.post('/api/auth/login', async (req, res) => {
-    const { username, password } = req.body;
-    try {
-        const result = await pool.query('SELECT * FROM users WHERE username ILIKE $1', [username]);
-        if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
-        
-        const user = result.rows[0];
-        const validPassword = await bcrypt.compare(password, user.password_hash);
-        
-        if (!validPassword) return res.status(401).json({ error: 'Invalid credentials' });
-        
-        const token = jwt.sign({ id: user.id, username: user.username, role: user.role, homeId: user.home_id }, JWT_SECRET, { expiresIn: '30d' });
-        
-        res.json({
-            token,
-            user: { id: user.id, username: user.username, homeId: user.home_id, avatar: user.avatar, role: user.role }
-        });
-    } catch (error) {
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-app.post('/api/auth/register', async (req, res) => {
-    const { username, password } = req.body;
-    try {
-        const hash = await bcrypt.hash(password, 10);
-        const result = await pool.query(
-            'INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id, username, home_id, avatar, role',
-            [username, hash, 'member']
-        );
-        const user = result.rows[0];
-        const token = jwt.sign({ id: user.id, username: user.username, role: user.role, homeId: user.home_id }, JWT_SECRET, { expiresIn: '30d' });
-        
-        res.json({ token, user: { id: user.id, username: user.username, homeId: user.home_id, avatar: user.avatar, role: user.role } });
-    } catch (error: any) {
-        if (error.code === '23505') return res.status(400).json({ error: 'Username already exists' });
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
 app.post('/api/auth/kiosk-login', async (req, res) => {
     const { pin } = req.body;
     try {
@@ -624,52 +580,6 @@ app.put('/api/auth/password', authenticateToken, async (req, res) => {
         const newHash = await bcrypt.hash(newPassword, 10);
         await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, userId]);
         res.json({ message: 'Password updated' });
-    } catch (e) {
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-app.get('/api/homes/:homeId/users', authenticateToken, async (req, res) => {
-    const { homeId } = req.params;
-    try {
-        const result = await pool.query('SELECT id, username, home_id as "homeId", avatar, role FROM users WHERE home_id = $1', [homeId]);
-        res.json(result.rows);
-    } catch (e) {
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-app.post('/api/homes/:homeId/invite', authenticateToken, async (req, res) => {
-    const { homeId } = req.params;
-    const { targetUsername } = req.body;
-    try {
-        const result = await pool.query(
-            'UPDATE users SET home_id = $1, role = $2 WHERE username ILIKE $3 RETURNING id',
-            [homeId, 'member', targetUsername]
-        );
-        if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
-        res.json({ message: 'User invited' });
-    } catch (e) {
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-app.put('/api/homes/users/:userId/role', authenticateToken, async (req, res) => {
-    const { userId } = req.params;
-    const { role } = req.body;
-    try {
-        await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
-        res.json({ message: 'Role updated' });
-    } catch (e) {
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-app.delete('/api/homes/users/:userId', authenticateToken, async (req, res) => {
-    const { userId } = req.params;
-    try {
-        await pool.query('UPDATE users SET home_id = NULL, role = \'member\' WHERE id = $1', [userId]);
-        res.json({ message: 'User removed' });
     } catch (e) {
         res.status(500).json({ error: 'Server error' });
     }

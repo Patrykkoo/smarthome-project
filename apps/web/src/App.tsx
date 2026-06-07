@@ -19,7 +19,6 @@ import Login from "./pages/Login";
 
 const queryClient = new QueryClient();
 
-// Układ zawierający ekran domowy ORAZ nasłuchiwanie na blokadę ekranu (Away mode)
 const ProtectedLayout = () => {
   const user = auth.getCurrentUser();
   if (!user) return <Navigate to="/login" replace />;
@@ -40,7 +39,6 @@ const SmartHomeRoot = () => {
       <Routes>
         <Route path="/login" element={<Login />} />
 
-        {/* Trasy chronione dla tabletu */}
         <Route element={<ProtectedLayout />}>
           <Route path="/" element={<Index />} />
           <Route path="/devices" element={<Devices />} />

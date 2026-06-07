@@ -107,7 +107,6 @@ const Dashboard = () => {
     }
   });
 
-  // POGODA CZYTAJĄCA Z RĘCZNYCH KOORDYNATÓW
   const { data: weatherData } = useQuery({
     queryKey: ['weather', settingsTrigger],
     queryFn: async () => {
@@ -117,10 +116,9 @@ const Dashboard = () => {
         const locName = localStorage.getItem('smartify_location_name');
 
         if (!lat || !lon || !locName) {
-          return null; // Jeśli nic nie wpisano, po prostu zwracamy null (Wyświetli "Location not set")
+          return null;
         }
 
-        // Bezpośrednie zapytanie z koordynatami, omijamy wszelkiego rodzaju wyszukiwarki miast
         const res = await axios.get(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code&daily=sunrise,sunset&timezone=auto`);
         
         if (!res.data || !res.data.current) throw new Error("Invalid weather payload");
@@ -154,7 +152,6 @@ const Dashboard = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Odśwież widżet pogody od razu, gdy klikniesz "Save" w Settings
   useEffect(() => {
     const handleSettingsChange = () => setSettingsTrigger(prev => prev + 1);
     window.addEventListener('user_settings_changed', handleSettingsChange);

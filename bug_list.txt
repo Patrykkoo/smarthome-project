@@ -1,2 +1,0 @@
-1. Usunąć wszystko co związane z livora (ew. zamienić na smartify), czasami nawet się pojawiają jakieś
-dziwne h1 z tym napisem, wszystko to jest do usunięcia

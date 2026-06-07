@@ -63,7 +63,6 @@ export function LockScreen() {
       className="fixed inset-0 z-[100] bg-background text-foreground overflow-y-auto transition-opacity duration-1000 select-none"
       onClick={() => !showPad && setShowPad(true)}
     >
-      {/* min-h-full + centrowanie: PIN jest wyśrodkowany, a gdy okno jest skrajnie niskie, można doscrollować bez ucinania góry */}
       <div className="min-h-full flex items-center justify-center p-4">
         {!showPad ? (
           <div className="flex flex-col items-center opacity-70 animate-pulse cursor-pointer relative z-10">

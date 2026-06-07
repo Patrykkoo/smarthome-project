@@ -1,5 +1,5 @@
 import { LayoutDashboard, Lightbulb, BarChart3, Sparkles, Settings as SettingsIcon, Home } from "lucide-react";
-import { NavLink } from "@/components/NavLink";
+import { NavLink } from "./NavLink";
 import { useState, useEffect } from "react";
 import { auth, User as AuthUser } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -25,9 +25,7 @@ const items = [
 
 export function AppSidebar() {
   const { state, setOpen, isMobile } = useSidebar();
-  
-  // ZMIANA: Na urządzeniach mobilnych (isMobile === true) Sidebar działa jako nakładka (Sheet). 
-  // Chcemy, aby w nakładce zawsze pokazywały się pełne nazwy przycisków, a nie tylko ikony.
+
   const collapsed = state === "collapsed" && !isMobile;
   
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(auth.getCurrentUser());
@@ -61,7 +59,6 @@ export function AppSidebar() {
   return (
     <Sidebar 
       collapsible="icon" 
-      // ZMIANA: Usuwamy mr-6 na urządzeniach mobilnych, aby nakładka nie "pchała" ekranu.
       className={cn(
         "border-r border-border/30 transition-[margin] duration-200 ease-linear",
         !isMobile && "data-[state=collapsed]:mr-6"

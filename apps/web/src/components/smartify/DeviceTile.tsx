@@ -53,7 +53,6 @@ export function DeviceTile({
           <Icon className="h-5 w-5" />
         </div>
         
-        {/* Renderujemy switch tylko jeśli urządzenie go wspiera */}
         {showSwitch && (
           <div onClick={(e) => { e.stopPropagation(); if (offline) e.preventDefault(); }}>
             <Switch checked={enabled && !offline} disabled={offline} onCheckedChange={onToggle} />

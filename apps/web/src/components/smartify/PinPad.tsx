@@ -6,25 +6,15 @@ interface PinPadProps {
   icon: LucideIcon;
   title: string;
   subtitle: string;
-  /** Czerwony stan podtytułu (np. błędny PIN). */
   error?: boolean;
-  /** Aktualnie wpisany PIN (stan trzyma rodzic). */
   pin: string;
-  /** Liczba kropek/cyfr. */
   length?: number;
-  /** Etykieta lewego dolnego przycisku (np. "Clear" lub "Cancel"). */
   secondaryLabel: string;
   onSecondary: () => void;
   onDigit: (digit: number) => void;
   onBackspace: () => void;
 }
 
-/**
- * Wspólny ekran wpisywania PIN-u używany przez Login (logowanie kiosku)
- * oraz LockScreen (rozbrajanie systemu). Komponent jest prezentacyjny —
- * stan PIN-u i logikę walidacji trzyma rodzic, dzięki czemu oba ekrany
- * wyglądają identycznie, a zachowują różne akcje.
- */
 export function PinPad({
   icon: Icon,
   title,

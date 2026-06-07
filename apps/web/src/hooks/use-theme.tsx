@@ -48,7 +48,6 @@ export function ThemeProvider({
     root.classList.add(theme)
   }, [theme])
 
-  // Nasłuchiwanie na zmiany w systemie w czasie rzeczywistym
   useEffect(() => {
     if (theme !== "system") return;
 

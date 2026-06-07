@@ -11,7 +11,6 @@ export default {
       screens: { "2xl": "1400px" },
     },
     extend: {
-      // Warianty wysokości okna (np. ekran PIN dostosowuje się do niskich okien)
       screens: {
         short: { raw: "(max-height: 720px)" },
         shorter: { raw: "(max-height: 560px)" },

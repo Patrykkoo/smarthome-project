@@ -114,7 +114,6 @@ export const initDB = async () => {
         const userCount = await client.query('SELECT COUNT(*) FROM users');
         if (parseInt(userCount.rows[0].count) === 0) {
             console.log('Creating default owner account...');
-            // Zmieniono PIN na 123456
             const hash = await bcrypt.hash('123456', 10);
             await client.query(`
                 INSERT INTO users (username, password_hash, home_id, role)

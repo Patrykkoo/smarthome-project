@@ -2,9 +2,6 @@ import * as mqtt from 'mqtt';
 import pool, { initDB } from './db';
 import { startAPI, emitDeviceState, emitDevicesUpdated, emitDeviceJoined, automationNotifier, triggerSceneLocal, currentPresenceMode } from './api';
 
-// =====================================
-// IN-MEMORY AUTOMATION CACHE ENGINE
-// =====================================
 let deviceAutomations: Record<string, any[]> = {};
 let timeAutomations: any[] = [];
 let lastEvaluatedMinute = -1;
@@ -29,20 +26,15 @@ const reloadAutomations = async () => {
     }
 };
 
-// Nasłuchiwanie na zmiany z API
 automationNotifier.onUpdate = reloadAutomations;
 
-// Właściwa egzekucja Automatyzacji
 const executeAutomation = (automation: any) => {
     const cond = automation.condition_config;
     
-    // AND Condition: Sprawdzamy tryb (Home/Away/Any)
     if (cond?.mode && cond.mode !== 'any' && cond.mode !== currentPresenceMode) {
         console.log(`[Auto Engine] Skipped ${automation.name} -> Wrong Mode (${currentPresenceMode} != ${cond.mode})`);
         return;
     }
-    
-    // DO Action: Odlapamy konkretną scenę
     if (automation.action_config?.scene_id) {
         console.log(`[Auto Engine] Executing: ${automation.name} -> Scene ID: ${automation.action_config.scene_id}`);
         triggerSceneLocal(automation.action_config.scene_id);
@@ -53,14 +45,10 @@ const start = async () => {
     await initDB();
     startAPI();
     
-    // Pobieramy automatyzacje do RAM przy starcie
     await reloadAutomations();
 
     const client = mqtt.connect('mqtt://localhost:1883');
-
-    // W PĘTLI CO 60 SEKUND: Zapis mocy ORAZ sprawdzenie automatyzacji czasowych
     setInterval(async () => {
-        // 1. Zapis Historii Mocy
         try {
             const result = await pool.query(`
                 SELECT payload->>'power' as power 
@@ -79,12 +67,10 @@ const start = async () => {
             console.error('Błąd zapisu historii mocy:', error);
         }
 
-        // 2. Automatyzacje na bazie czasu (Time-based triggers)
         const now = new Date();
         const formatter = new Intl.DateTimeFormat('pl-PL', { timeZone: 'Europe/Warsaw', hour: '2-digit', minute: '2-digit', hour12: false });
-        const hhmm = formatter.format(now); // Np. "07:00"
+        const hhmm = formatter.format(now);
         
-        // Zabezpieczenie przed wielokrotnym odpalaniem w obrębie tej samej minuty
         if (now.getMinutes() !== lastEvaluatedMinute) {
             lastEvaluatedMinute = now.getMinutes();
             timeAutomations.forEach(a => {
@@ -209,14 +195,9 @@ const start = async () => {
                 
                 emitDeviceState(friendlyName, mergedPayload);
 
-                // =====================================
-                // WERYFIKACJA AUTOMATYZACJI NA ŻYWO (State-based triggers)
-                // =====================================
                 if (!isAvailability && deviceAutomations[friendlyName]) {
                     deviceAutomations[friendlyName].forEach(a => {
                         const { property, value } = a.trigger_config || {};
-                        // Zabezpieczenie: Sprawdzamy tylko nowe "data", a nie pełny "mergedPayload",
-                        // aby uniknąć pętli dla stanów, które nie uległy zmianie w tej wiadomości
                         if (data[property] !== undefined && String(data[property]) === String(value)) {
                             executeAutomation(a);
                         }

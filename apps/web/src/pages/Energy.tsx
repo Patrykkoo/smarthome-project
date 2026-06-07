@@ -33,7 +33,6 @@ const Energy = () => {
   const [timeframe, setTimeframe] = useState<TimeframeMode>("week");
   const [selectedBar, setSelectedBar] = useState<number | null>(null);
 
-  // Pobieranie globalnych ustawień z localStorage
   const energyRate = parseFloat(localStorage.getItem('smartify_energy_rate') || '1.15');
   const currency = localStorage.getItem('smartify_currency') || 'PLN';
 
@@ -176,13 +175,10 @@ const Energy = () => {
   const maxValueInChart = Math.max(...chartData.map((d: any) => d.value));
   const maxChartValue = maxValueInChart > 0 ? maxValueInChart : 1;
 
-  // Obliczenie aktualnego kosztu
   const totalCost = todayKwh * energyRate;
 
   return (
     <div className="max-w-[1400px] mx-auto pb-10 flex flex-col gap-6">
-      
-      {/* NAGŁÓWEK */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-semibold">Energy Overview</h1>
@@ -191,7 +187,6 @@ const Energy = () => {
         <TimeframeToggle initialMode={timeframe} onChange={setTimeframe} className="self-end sm:self-auto shrink-0" />
       </div>
 
-      {/* GÓRNY RZĄD */}
       <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
         
         <GlassCard className="p-6 flex flex-col relative overflow-hidden group lg:col-span-5 min-h-[260px] lg:h-[260px]">
@@ -269,7 +264,6 @@ const Energy = () => {
           </GlassCard>
         </div>
 
-        {/* AKTYWNE URZĄDZENIA */}
         <GlassCard className="p-5 lg:col-span-2 min-h-[260px] lg:h-[260px] flex flex-col">
            <div className="flex items-center justify-between shrink-0">
               <p className="text-sm font-medium flex items-center gap-2">
@@ -313,7 +307,6 @@ const Energy = () => {
         </GlassCard>
       </div>
 
-      {/* WYKRES SŁUPKOWY */}
       <GlassCard className="p-6 flex flex-col justify-between min-h-[260px] lg:h-[260px]">
         <h2 className="font-display text-xl font-semibold shrink-0">Consumption History</h2>
         
@@ -376,7 +369,6 @@ const Energy = () => {
         </div>
       </GlassCard>
 
-      {/* LISTA URZĄDZEŃ I ROZKŁAD */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-6">
         <GlassCard className="p-6">
           <h2 className="font-display text-xl font-semibold mb-6">Device Breakdown</h2>

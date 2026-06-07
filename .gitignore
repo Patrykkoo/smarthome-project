@@ -1,21 +1,16 @@
-# Zależności i pakiety
 node_modules/
 npm-debug.log*
 
-# Buildy
 dist/
 build/
 dist-ssr/
 
-# Środowisko i sekrety
 .env
 .env.local
 
-# Baza danych i pliki Zigbee2MQTT
 zigbee2mqtt-data/
 timescaledb-data/
 
-# Pliki edytorów i systemowe
 .vscode/*
 !.vscode/extensions.json
 .idea

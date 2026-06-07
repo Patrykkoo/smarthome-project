@@ -229,7 +229,6 @@ export function Topbar() {
     localStorage.setItem('smartify_notifications', JSON.stringify(notifications));
   }, [notifications]);
 
-  // DODANE: Globalny nasłuchiwacz innych komponentów (Złapie eventy wysłane z Settings i Devices)
   useEffect(() => {
     const handleCustomAppNotification = (e: any) => {
       const { type, title, description } = e.detail;
@@ -565,7 +564,6 @@ export function Topbar() {
       <div
         className={cn("fixed top-0 right-0 z-50 h-full w-full sm:w-[400px] glass border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out flex flex-col overflow-hidden", isNotificationsOpen ? "translate-x-0" : "translate-x-full")}
       >
-        {/* Własna niebieska poświata - accent jest taki sam w light i dark, więc panel wygląda spójnie w obu motywach */}
         <div className="pointer-events-none absolute -top-24 -right-16 h-72 w-72 rounded-full bg-accent/40 blur-[110px]" aria-hidden />
 
         <div className="relative z-10 flex items-center justify-between p-6 pb-4">

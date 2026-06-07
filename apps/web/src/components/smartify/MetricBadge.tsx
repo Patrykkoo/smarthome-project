@@ -2,9 +2,9 @@ import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface MetricBadgeProps {
-  value: number; // percent
+  value: number;
   className?: string;
-  inverted?: boolean; // when true, lower is better (e.g. energy)
+  inverted?: boolean;
 }
 
 export function MetricBadge({ value, className, inverted = false }: MetricBadgeProps) {

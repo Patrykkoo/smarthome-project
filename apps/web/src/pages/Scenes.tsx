@@ -39,7 +39,6 @@ const AVAILABLE_COLORS = [
   "from-emerald-200/50 to-teal-200/30"
 ];
 
-// Dostępne parametry urządzeń jako wyzwalacze (Trigger Properties)
 const DEVICE_PROPERTIES = [
   { key: 'contact', label: 'Door/Window Contact', options: [{label: 'Open', value: 'false'}, {label: 'Closed', value: 'true'}] },
   { key: 'water_leak', label: 'Water Leak Sensor', options: [{label: 'Leak Detected', value: 'true'}, {label: 'Dry', value: 'false'}] },
@@ -59,7 +58,6 @@ const Scenes = () => {
     name: "", icon: "Sparkles", color: AVAILABLE_COLORS[0], actions: []
   });
 
-  // STANY AUTOMATYZACJI
   const [isAutoModalOpen, setIsAutoModalOpen] = useState(false);
   const [autoToDelete, setAutoToDelete] = useState<number | null>(null);
   const [autoForm, setAutoForm] = useState<any>({ 
@@ -123,7 +121,6 @@ const Scenes = () => {
       toast.success("Scene deleted");
       if (activeSceneId === id) setActiveScene(null);
       queryClient.invalidateQueries({ queryKey: ['scenes'] });
-      // Odświeżenie automatyzacji (być może korzystały z tej usuniętej sceny)
       queryClient.invalidateQueries({ queryKey: ['automations'] });
     } catch (error) {
       toast.error("Failed to delete scene");
@@ -187,7 +184,6 @@ const Scenes = () => {
     setIsModalOpen(true);
   };
 
-  // LOGIKA AUTOMATYZACJI
   const toggleAutomation = async (id: number, enabled: boolean) => {
       const auto = automations.find((a:any) => a.id === id);
       if (!auto) return;
@@ -251,7 +247,6 @@ const Scenes = () => {
     }
   };
 
-  // Wyliczanie opcji dla wybranego czujnika
   const activeTriggerDeviceProps = useMemo(() => {
     if (!autoForm.trigger_config?.device) return [];
     const d = devices.find((x:any) => x.friendly_name === autoForm.trigger_config.device);
@@ -327,7 +322,6 @@ const Scenes = () => {
         </div>
       </section>
 
-      {/* SEKCJA AUTOMATYZACJI */}
       <section className="pt-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-display text-xl font-semibold">Automations</h2>
@@ -401,9 +395,6 @@ const Scenes = () => {
         )}
       </section>
 
-      {/* ===================================== */}
-      {/* MODAL KREATORA SCEN */}
-      {/* ===================================== */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="glass border-white/20 rounded-[28px] max-w-2xl p-0 overflow-hidden flex flex-col max-h-[85vh]">
           <DialogHeader className="p-6 pb-2 shrink-0">
@@ -498,7 +489,6 @@ const Scenes = () => {
 
                     return (
                       <div key={index} className="bg-card border border-border/60 shadow-sm rounded-3xl overflow-hidden flex flex-col transition-all">
-                        {/* HEADER URZĄDZENIA */}
                         <div className="bg-muted/20 px-4 py-3 flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className="h-10 w-10 rounded-xl bg-background border border-border/50 flex items-center justify-center text-foreground shadow-sm shrink-0">
@@ -516,7 +506,6 @@ const Scenes = () => {
                               onCheckedChange={(v) => updateActionPayload(index, "state", v ? "ON" : "OFF")}
                             />
                             <div className="w-px h-5 bg-border mx-2"></div>
-                            {/* Zwiększony przycisk kosza */}
                             <button 
                               onClick={() => removeAction(index)} 
                               className="h-10 w-10 flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors active:scale-95 focus-visible:ring-0"
@@ -526,7 +515,6 @@ const Scenes = () => {
                           </div>
                         </div>
 
-                        {/* OPCJE (Tylko jeśli ON i są dostępne ficzery) */}
                         {action.payload.state === "ON" && (hasBrightness || hasColorTemp || hasColor || hasChildLock) && (
                           <div className="p-5 bg-background/40 border-t border-border/40 flex flex-col gap-6">
                             
@@ -572,7 +560,6 @@ const Scenes = () => {
                             {hasColor && (
                               <div className="flex flex-col items-center justify-center bg-muted/20 rounded-2xl p-4 border border-border/50">
                                 <span className="text-sm text-muted-foreground font-medium flex items-center gap-1.5 mb-4 w-full"><Palette className="h-4 w-4" /> Color</span>
-                                {/* Powiększone koło kolorów do 180px */}
                                 <ColorWheel 
                                   hue={action.payload.color?.h || 0} 
                                   saturation={action.payload.color?.s || 100}
@@ -588,7 +575,6 @@ const Scenes = () => {
                               </div>
                             )}
 
-                            {/* Child Lock */}
                             {hasChildLock && (
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
@@ -634,9 +620,6 @@ const Scenes = () => {
         </DialogContent>
       </Dialog>
 
-      {/* ===================================== */}
-      {/* MODAL KREATORA AUTOMATYZACJI */}
-      {/* ===================================== */}
       <Dialog open={isAutoModalOpen} onOpenChange={setIsAutoModalOpen}>
         <DialogContent className="glass border-white/20 rounded-[28px] max-w-xl p-0 overflow-hidden flex flex-col max-h-[85vh]">
           <DialogHeader className="p-6 pb-2 shrink-0 border-b border-white/10 bg-background/20">
@@ -655,7 +638,6 @@ const Scenes = () => {
               />
             </div>
 
-            {/* BLOCK 1: TRIGGER */}
             <div className="space-y-4">
               <label className="text-xs uppercase tracking-wider text-foreground font-semibold mb-2 ml-1 block">Trigger Event</label>
 
@@ -761,7 +743,6 @@ const Scenes = () => {
               </div>
             </div>
 
-            {/* BLOCK 2: CONDITION */}
             <div className="pt-6 border-t border-border/40 space-y-3">
               <label className="text-xs uppercase tracking-wider text-foreground font-semibold mb-2 ml-1 block">Condition (Optional)</label>
               <Select value={autoForm.condition_config?.mode || "any"} onValueChange={(v) => setAutoForm((prev:any) => ({ ...prev, condition_config: {mode: v} }))}>
@@ -776,7 +757,6 @@ const Scenes = () => {
               </Select>
             </div>
 
-            {/* BLOCK 3: ACTION */}
             <div className="pt-6 border-t border-border/40 space-y-3">
               <label className="text-xs uppercase tracking-wider text-primary font-bold mb-2 ml-1 block">Scene To Run</label>
               <Select value={autoForm.action_config?.scene_id ? String(autoForm.action_config.scene_id) : ""} onValueChange={(v) => setAutoForm((prev:any) => ({ ...prev, action_config: {scene_id: Number(v)} }))}>

@@ -287,7 +287,6 @@ const Devices = () => {
     }, 250);
   };
 
-  // DODANE: Zmiana zdarzeń z Toasta na globalne eventy (Menu Powiadomień)
   const handleDelete = async (friendlyName: string) => {
     try {
       await axios.delete(`${API_URL}/devices/${friendlyName}`);
@@ -450,7 +449,6 @@ const Devices = () => {
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         
         <GlassCard className="p-2 lg:p-3 w-full lg:w-[220px] shrink-0 flex flex-row lg:flex-col gap-2 items-center lg:items-stretch">
-          {/* Pokoje przewijają się poziomo (wąskie okno); przycisk Add room zostaje przyklejony po prawej */}
           <div className="flex-1 min-w-0 flex flex-row lg:flex-col gap-2 overflow-x-auto lg:overflow-visible no-scrollbar items-center lg:items-stretch lg:w-full">
           {displayRooms.map((r) => (
             <button

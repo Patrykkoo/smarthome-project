@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { User, Palette, Zap, Bell, Server, Check, Image as ImageIcon, LogOut, Key, UserPlus, Trash2, MapPin } from "lucide-react";
+import { useState } from "react";
+import { User, Palette, Zap, Bell, Server, Check, Image as ImageIcon, LogOut, Key, MapPin } from "lucide-react";
 import { GlassCard } from "@/components/smartify/GlassCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -23,28 +23,13 @@ const Settings = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme(); 
   const [activeSection, setActiveSection] = useState("account");
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(auth.getCurrentUser());
-  const isOwner = currentUser?.role === 'owner';
-
-  const [homeUsers, setHomeUsers] = useState<AuthUser[]>([]);
-
-  const loadHomeUsers = async () => {
-    if (currentUser?.homeId) {
-      const users = await auth.getUsersInHome(currentUser.homeId);
-      setHomeUsers(users);
-    }
-  };
-
-  useEffect(() => {
-    loadHomeUsers();
-  }, [currentUser]);
+  const [currentUser] = useState<AuthUser | null>(auth.getCurrentUser());
 
   const [userName, setUserName] = useState(currentUser?.username || '');
   const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatar || '');
 
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [inviteUsername, setInviteUsername] = useState("");
 
   const [homeName, setHomeName] = useState(localStorage.getItem('smartify_home_name') || 'My Smart Home');
   const [timeFormat, setTimeFormat] = useState(localStorage.getItem('smartify_time_format') || '24h');
@@ -98,37 +83,6 @@ const Settings = () => {
     toast.success("Settings saved successfully", {
       icon: <Check className="h-4 w-4 text-emerald-500" />
     });
-  };
-
-  // DODANE: Zmiana zdarzeń z Toasta na globalne eventy (Menu Powiadomień)
-  const handleInvite = async () => {
-    if (!inviteUsername.trim() || !currentUser?.homeId) return;
-    const success = await auth.inviteUserToHome(inviteUsername, currentUser.homeId);
-    if (success) {
-      window.dispatchEvent(new CustomEvent('app_notification', {
-        detail: { type: 'success', title: 'New Home Member', description: `${inviteUsername} was added to your home network.` }
-      }));
-      setInviteUsername("");
-      await loadHomeUsers();
-    } else {
-      toast.error(`User ${inviteUsername} not found.`);
-    }
-  };
-
-  const handleRemoveUser = async (userId: string) => {
-    await auth.removeUserFromHome(userId);
-    window.dispatchEvent(new CustomEvent('app_notification', {
-        detail: { type: 'warning', title: 'Member Removed', description: `A user has been removed from your home network.` }
-    }));
-    await loadHomeUsers();
-  };
-
-  const handleRoleChange = async (userId: string, role: string) => {
-    await auth.changeUserRole(userId, role as 'owner' | 'member');
-    window.dispatchEvent(new CustomEvent('app_notification', {
-        detail: { type: 'info', title: 'Role Updated', description: `User permissions have been modified.` }
-    }));
-    await loadHomeUsers();
   };
 
   const handleLogout = () => {
@@ -217,68 +171,6 @@ const Settings = () => {
                 </div>
               </div>
 
-              <div className="space-y-4 pt-6 border-t border-border/40">
-                <h3 className="text-sm font-semibold flex items-center gap-2"><UserPlus className="h-4 w-4" /> Home Members</h3>
-                <p className="text-xs text-muted-foreground mb-4">People who have access to this smart home.</p>
-                
-                <div className="grid gap-3 max-w-2xl">
-                  {homeUsers.map(u => (
-                    <div key={u.id} className="flex items-center justify-between p-3 rounded-2xl bg-background/40 border border-white/5">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center overflow-hidden shrink-0 border border-white/10">
-                          {u.avatar ? <img src={u.avatar} alt="Avatar" className="w-full h-full object-cover" /> : <span className="font-bold text-xs uppercase">{u.username.charAt(0)}</span>}
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold">{u.username} {u.id === currentUser?.id && <span className="text-muted-foreground font-normal">(You)</span>}</p>
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">{u.role}</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <Select 
-                          value={u.role} 
-                          onValueChange={(v) => handleRoleChange(u.id, v)} 
-                          disabled={!isOwner || u.id === currentUser?.id}
-                        >
-                          <SelectTrigger className="w-[100px] h-9 rounded-lg bg-background/50 border-white/10 text-xs focus:ring-0">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-xl border-white/10 glass">
-                            <SelectItem value="member" className="text-xs cursor-pointer">Member</SelectItem>
-                            <SelectItem value="owner" className="text-xs cursor-pointer">Owner</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        
-                        {isOwner && u.id !== currentUser?.id && (
-                          <button 
-                            onClick={() => handleRemoveUser(u.id)}
-                            className="h-9 w-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors active:scale-95 outline-none focus-visible:ring-0"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {isOwner && (
-                  <div className="flex items-center gap-3 max-w-sm mt-4">
-                    <Input 
-                      value={inviteUsername} 
-                      onChange={e => setInviteUsername(e.target.value)} 
-                      placeholder="Exact username" 
-                      className="bg-background/50 border-white/10 rounded-xl text-base h-11 px-4 focus-visible:ring-1" 
-                    />
-                    <Button 
-                      onClick={handleInvite} 
-                      className="h-11 px-6 rounded-xl shadow-md focus-visible:ring-0 shrink-0"
-                    >
-                      Add User
-                    </Button>
-                  </div>
-                )}
-              </div>
             </div>
           )}
 

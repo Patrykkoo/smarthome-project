@@ -1,5 +1,3 @@
-// Color helpers for Smartify device controls.
-
 export function hexToHsl(hex: string): { h: number; s: number; l: number } {
   const m = hex.replace("#", "");
   const full = m.length === 3 ? m.split("").map((c) => c + c).join("") : m;
@@ -35,7 +33,6 @@ export function hslToHex(h: number, s: number, l: number): string {
   return `#${f(0)}${f(8)}${f(4)}`.toUpperCase();
 }
 
-/** Approx. Tanner Helland's color-temperature → RGB. ~1500K → 8000K. */
 export function kelvinToHex(kelvin: number): string {
   const t = Math.max(1000, Math.min(40000, kelvin)) / 100;
   let r: number, g: number, b: number;
