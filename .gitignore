@@ -5,9 +5,6 @@ dist/
 build/
 dist-ssr/
 
-.env
-.env.local
-
 zigbee2mqtt-data/
 timescaledb-data/
 
